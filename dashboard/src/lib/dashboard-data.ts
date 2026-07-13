@@ -1,7 +1,7 @@
 import { columnAliases } from "@/config/sheets";
 
 export type RawRow = Record<string, string>;
-export type DashboardRow = Record<string, string | boolean> & {
+export type DashboardRow = RawRow & {
   __id: string;
   __analyst: string;
   __ticket: string;
