@@ -1,0 +1,37 @@
+# MVP config for the planning report bot.
+# Share the spreadsheet with the service-account email before running the bot.
+spreadsheet_id: "1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ"
+
+# Header aliases let the bot work with Russian column names in Google Sheets.
+columns:
+  analyst: ["аналитик", "ответственный", "исполнитель", "assignee"]
+  ticket: ["тикет", "задача", "key", "jira", "номер"]
+  title: ["название", "описание", "тема", "summary"]
+  status: ["статус", "состояние", "этап"]
+  priority: ["приоритет", "priority"]
+  note: ["комментарий", "примечание", "note"]
+
+analysts: ["Аня", "Саша", "Настя", "Таня"]
+
+sections:
+  dropped_backlog:
+    title: "⛔Задачи, которые убрали в бэклог и не будем доставать из него, пока их не попросят"
+    sheet: "Актуальные задачи аналитики + бэклог"
+    status_contains: ["убрали в бэклог", "отлож", "не доставать"]
+
+  focus:
+    title: "✅Фокусные задачи в работе на этой неделе"
+    sheet: "Отчет спринт"
+    status_contains: ["фокус", "в работе", "спринт"]
+    group_by: "analyst"
+
+  small_tasks:
+    title: "⚪Есть еще мелкие задачи/баги, которые разбираем, когда окошко свободное появляется"
+    sheet: "Актуальные задачи аналитики + бэклог"
+    status_contains: ["мелк", "баг", "окошко"]
+    group_by: "analyst"
+
+  release:
+    title: "Что в итоге взяли в релиз: Релизы"
+    sheet: "Релизы"
+    status_contains: []
