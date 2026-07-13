@@ -1,7 +1,8 @@
 import { columnAliases } from "@/config/sheets";
 
 export type RawRow = Record<string, string>;
-export type DashboardRow = RawRow & {
+// Dashboard rows include raw string cells plus computed boolean flags such as __dateValid.
+export type DashboardRow = Record<string, string | boolean> & {
   __id: string;
   __analyst: string;
   __ticket: string;
