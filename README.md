@@ -1,3 +1,80 @@
+# Telegram report bot + management dashboard MVP
+
+В репозитории есть две независимые части:
+
+- `report_bot.py` — существующий Telegram-бот, который собирает текстовый отчет из Google Sheets и отправляет его по команде `/report` или по расписанию.
+- `dashboard/` — новый веб-дашборд для руководства на Next.js, открывается в браузере по прямой ссылке и загружает актуальные данные из Google Sheets при каждом открытии.
+
+## Что переиспользовано из Telegram-бота
+
+Для дашборда повторно использованы идеи старой реализации: нормализация заголовков, алиасы колонок, обработка пустых значений, бизнес-сущности `аналитик / тикет / название / статус / приоритет / комментарий` и чтение Google Sheets как источника истины. Telegram API в дашборде не используется.
+
+## Запуск только дашборда
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+После запуска дашборд доступен на `http://localhost:3000`.
+
+Production-сборка:
+
+```bash
+cd dashboard
+npm run build
+```
+
+## Источник данных дашборда
+
+По умолчанию используется Google Sheets CSV endpoint:
+
+- Spreadsheet ID: `1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ`
+- GID листа: `1200022421`
+
+Дашборд обращается к `/api/sheets`, серверный обработчик пробует прочитать публичный CSV и возвращает JSON для интерфейса. Данные не копируются в код и обновляются без нового деплоя. В верхней части интерфейса показывается ссылка на Google Sheets, откуда загружены данные.
+
+Если используется service account, `GOOGLE_SHEET_GID` можно не указывать: дашборд сам получит список видимых листов таблицы и покажет переключатель листов в фильтрах. GID каждого листа вручную в отдельную таблицу добавлять не нужно.
+
+Если таблица закрыта, добавьте в Vercel переменные окружения из `dashboard/.env.example`:
+
+```env
+GOOGLE_SPREADSHEET_ID=1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ
+# Необязательно для service account. Для публичного CSV нужен конкретный лист.
+GOOGLE_SHEET_GID=1200022421
+GOOGLE_SERVICE_ACCOUNT_EMAIL=dashboard-reader@project.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+# Необязательно. Указывайте только если нужно принудительно читать конкретный range.
+GOOGLE_SHEET_RANGE='Лист1!A:Z'
+```
+
+Service account нужно выдать доступ `Viewer / Читатель` к Google Sheets. Секреты нельзя добавлять в Git.
+
+## Обновление данных
+
+- данные загружаются при каждом открытии страницы;
+- есть кнопка «Обновить данные»;
+- показано время последнего успешного обновления;
+- есть индикатор загрузки, ошибка и повтор загрузки;
+- автообновление выполняется раз в 5 минут;
+- изменение данных в Google Sheets не требует коммита или повторного деплоя.
+
+## Деплой на Vercel Free
+
+Если деплой выполняется через интерфейс Vercel:
+
+- Root Directory: `dashboard`
+- Framework Preset: `Next.js`
+- Build Command: `npm run build`
+- Output Directory: оставить пустым / значение Next.js по умолчанию
+- Install Command: `npm install`
+- Environment Variables: значения из `dashboard/.env.example` при необходимости
+
+`vercel.json` не добавлен, потому что для отдельной папки `dashboard` достаточно настроить Root Directory.
+
+---
+
 # Telegram report bot MVP
 
 MVP собирает текстовый отчет из Google Sheets и отправляет его в Telegram по команде `/report` или ежедневно по расписанию.
