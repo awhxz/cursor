@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google, sheets_v4 } from "googleapis";
 import Papa from "papaparse";
 import { sheetGid, spreadsheetId } from "@/config/sheets";
 import { normalizeHeader, normalizeText, RawRow, toDashboardRows, DashboardPayload } from "./dashboard-data";
@@ -26,13 +26,33 @@ async function fetchPublicCsv(): Promise<DashboardPayload> {
   return { rows: toDashboardRows(rows), columns, fetchedAt: new Date().toISOString(), source: "public-csv" };
 }
 
+function hasServiceAccountCredentials() {
+  return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+}
+
+function quoteSheetTitle(title: string) {
+  return `'${title.replace(/'/g, "''")}'!A:Z`;
+}
+
+async function resolveServiceAccountRange(sheets: sheets_v4.Sheets) {
+  if (process.env.GOOGLE_SHEET_RANGE) return process.env.GOOGLE_SHEET_RANGE;
+  const metadata = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets(properties(sheetId,title))",
+  });
+  const targetSheetId = Number(sheetGid);
+  const targetSheet = metadata.data.sheets?.find((sheet) => sheet.properties?.sheetId === targetSheetId);
+  const title = targetSheet?.properties?.title;
+  return title ? quoteSheetTitle(title) : "A:Z";
+}
+
 async function fetchWithServiceAccount(): Promise<DashboardPayload> {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n");
   if (!email || !privateKey) throw new Error("Нет публичного доступа и не заданы GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
   const auth = new google.auth.JWT({ email, key: privateKey, scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"] });
   const sheets = google.sheets({ version: "v4", auth });
-  const range = process.env.GOOGLE_SHEET_RANGE || "A:Z";
+  const range = await resolveServiceAccountRange(sheets);
   const result = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const { rows, columns } = rowsFromMatrix((result.data.values || []) as unknown[][]);
   return { rows: toDashboardRows(rows), columns, fetchedAt: new Date().toISOString(), source: "service-account" };
@@ -42,7 +62,8 @@ export async function fetchSheetsData(): Promise<DashboardPayload> {
   try {
     return await fetchPublicCsv();
   } catch (error) {
-    if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) return fetchWithServiceAccount();
-    throw error;
+    if (hasServiceAccountCredentials()) return fetchWithServiceAccount();
+    const details = error instanceof Error ? error.message : "неизвестная ошибка";
+    throw new Error(`${details}. Таблица закрыта для публичного CSV: откройте доступ «Anyone with the link / Viewer» или добавьте service account переменные в Vercel.`);
   }
 }
