@@ -46,6 +46,17 @@ function hasServiceAccountCredentials() {
   return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
 }
 
+function serviceAccountError(error: unknown) {
+  const details = error instanceof Error ? error.message : "неизвестная ошибка Google API";
+  if (/requested entity was not found|not found/i.test(details)) {
+    return new Error(
+      `Google Sheets API не видит таблицу ${spreadsheetId}. `
+      + "Добавьте GOOGLE_SERVICE_ACCOUNT_EMAIL в доступы таблицы с ролью «Читатель».",
+    );
+  }
+  return new Error(`Ошибка Google Sheets API: ${details}`);
+}
+
 function quoteSheetTitle(title: string) {
   return `'${title.replace(/'/g, "''")}'!A:I`;
 }
@@ -112,7 +123,13 @@ export async function fetchSheetsData(requestedGid?: string): Promise<DashboardP
         void retryError;
       }
     }
-    if (hasServiceAccountCredentials()) return fetchWithServiceAccount(requestedGid);
+    if (hasServiceAccountCredentials()) {
+      try {
+        return await fetchWithServiceAccount(requestedGid);
+      } catch (serviceError) {
+        throw serviceAccountError(serviceError);
+      }
+    }
     const details = error instanceof Error ? error.message : "неизвестная ошибка";
     throw new Error(`${details}. Таблица закрыта для публичного CSV: откройте доступ «Anyone with the link / Viewer» или добавьте service account переменные в Vercel.`);
   }

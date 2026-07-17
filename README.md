@@ -41,16 +41,13 @@ npm run build
 Если таблица закрыта, добавьте в Vercel переменные окружения из `dashboard/.env.example`:
 
 ```env
-GOOGLE_SPREADSHEET_ID=1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ
-# Необязательно для service account. Для публичного CSV нужен конкретный лист.
-GOOGLE_SHEET_GID=1654701914
 GOOGLE_SERVICE_ACCOUNT_EMAIL=dashboard-reader@project.iam.gserviceaccount.com
 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 Service account нужно выдать доступ `Viewer / Читатель` к Google Sheets. Секреты нельзя добавлять в Git.
 
-`GOOGLE_SHEET_RANGE` больше не используется: сервер сам находит название листа по `gid` и читает `A:I`. Если в Vercel осталась старая переменная `GOOGLE_SHEET_RANGE`, ее можно удалить.
+Spreadsheet ID зафиксирован в серверной конфигурации. Старые Vercel-переменные `GOOGLE_SPREADSHEET_ID` и `GOOGLE_SHEET_RANGE` больше не используются, их можно удалить. Сервер сам находит название листа по `gid` и читает `A:I`.
 
 Правила переноса первых девяти столбцов листа «Актуальные» описаны в [`docs/dashboard-data-spec.md`](docs/dashboard-data-spec.md). Отдельное ТЗ на валидацию и перемещение строк находится в [`docs/google-sheets-script-spec.md`](docs/google-sheets-script-spec.md), а готовый Google Apps Script — в [`google-apps-script/task-routing.gs`](google-apps-script/task-routing.gs).
 

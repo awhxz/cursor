@@ -1,4 +1,7 @@
-export const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID || "1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ";
+// This dashboard is intentionally bound to the management spreadsheet. Keeping the ID in
+// server configuration prevents an obsolete Vercel variable from silently selecting a deleted
+// test spreadsheet and producing Google API "Requested entity was not found" responses.
+export const spreadsheetId = "1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ";
 export const analyticsSheetGid = "1654701914";
 export const defaultSheetGid = process.env.GOOGLE_SHEET_GID || analyticsSheetGid;
 export const dashboardColumnLimit = 9;
