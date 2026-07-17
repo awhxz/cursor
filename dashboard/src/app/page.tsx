@@ -35,11 +35,15 @@ async function requestSheet(gid?: string): Promise<DashboardPayload> {
 }
 
 function sheetForTab(catalog: SheetInfo[], tab: DashboardTab) {
-  const title = dashboardTabs.find((item) => item.key === tab)?.sheetTitle?.toLowerCase();
-  return title ? catalog.find((sheet) => {
+  const tabConfig = dashboardTabs.find((item) => item.key === tab);
+  const configuredSheet = tabConfig?.sheetGid
+    ? catalog.find((sheet) => sheet.gid === tabConfig.sheetGid)
+    : undefined;
+  const title = tabConfig?.sheetTitle?.toLowerCase();
+  return configuredSheet || (title ? catalog.find((sheet) => {
     const sheetTitle = sheet.title.toLowerCase();
     return sheetTitle === title || sheetTitle.includes(title) || title.includes(sheetTitle);
-  }) : undefined;
+  }) : undefined);
 }
 
 function combinePayloads(payloads: DashboardPayload[], catalog: SheetInfo[]): DashboardPayload {
@@ -74,20 +78,22 @@ export default function DashboardPage() {
     setError("");
     try {
       const catalog = catalogRef.current;
-      if (activeTab === "all" && catalog.length) {
+      if (activeTab === "all") {
         const sheets = dashboardTabs
-          .filter((tab) => tab.sheetTitle)
-          .map((tab) => sheetForTab(catalog, tab.key))
-          .filter((sheet): sheet is SheetInfo => Boolean(sheet));
+          .filter((tab) => tab.sheetGid)
+          .map((tab) => ({ gid: sheetForTab(catalog, tab.key)?.gid || tab.sheetGid! }));
         const results = await Promise.all(sheets.map((sheet) => requestSheet(sheet.gid)));
         if (results.length) {
-          setPayload(combinePayloads(results, catalog));
+          const availableSheets = results.find((result) => result.availableSheets.length)?.availableSheets || catalog;
+          if (availableSheets.length) catalogRef.current = availableSheets;
+          setPayload(combinePayloads(results, availableSheets));
           return;
         }
       }
 
       const targetSheet = sheetForTab(catalog, activeTab);
-      const result = await requestSheet(targetSheet?.gid);
+      const configuredGid = dashboardTabs.find((tab) => tab.key === activeTab)?.sheetGid;
+      const result = await requestSheet(targetSheet?.gid || configuredGid);
       if (result.availableSheets?.length) catalogRef.current = result.availableSheets;
       setPayload(result);
     } catch (err) {
@@ -128,6 +134,7 @@ export default function DashboardPage() {
   const queueRows = useMemo(() => sorted.filter(isQueueTask), [sorted]);
   const mainRows = useMemo(() => sorted.filter((row) => !isQueueTask(row)), [sorted]);
   const groups = useMemo(() => groupByAnalyst(mainRows), [mainRows]);
+  const groupByResponsible = activeTab === "actual" || activeTab === "all";
   const resetFilters = () => { setCustomer([]); setAnalyst([]); setArea([]); setStatus([]); setQuery(""); };
   const changeTab = (tab: DashboardTab) => { resetFilters(); setActiveTab(tab); };
   const changeSort = (key: SortKey) => { if (sortKey === key) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
@@ -172,9 +179,11 @@ export default function DashboardPage() {
       {filtered.length > 0 && <>
         {mainRows.length > 0 && <section className="tableSection">
           <div className="sectionHeader"><div><h2>{dashboardTabs.find((tab) => tab.key === activeTab)?.label}</h2><span>{mainRows.length} {taskWord(mainRows.length)}</span></div></div>
-          <div className="tableScroll"><table className="taskTable"><MainTableHead sortKey={sortKey} direction={sortDirection} onSort={changeSort}/><tbody>
-            {groups.map((group) => <AnalystGroup key={group.name} name={group.name} rows={group.rows} />)}
-          </tbody></table></div>
+          <div className="tableScroll"><table className="taskTable">
+            {groupByResponsible
+              ? <><MainTableHead sortKey={sortKey} direction={sortDirection} onSort={changeSort}/><tbody>{groups.map((group) => <AnalystGroup key={group.name} name={group.name} rows={group.rows} />)}</tbody></>
+              : <><QueueTableHead sortKey={sortKey} direction={sortDirection} onSort={changeSort}/><tbody>{mainRows.map((row) => <TaskRow key={row.__id} row={row} showAnalyst />)}</tbody></>}
+          </table></div>
         </section>}
 
         {queueRows.length > 0 && <section className="tableSection queueSection">

@@ -1,12 +1,13 @@
 import type { DashboardRow } from "./dashboard-data";
+import { analyticsSheetGid, backlogSheetGid, completedSheetGid } from "@/config/sheets";
 
 export type DashboardTab = "actual" | "backlog" | "done" | "all";
 export type Tone = "red" | "orange" | "yellow" | "green" | "blue" | "peach" | "gray" | "violet";
 
-export const dashboardTabs: Array<{ key: DashboardTab; label: string; sheetTitle?: string }> = [
-  { key: "actual", label: "Актуальные", sheetTitle: "Актуальные" },
-  { key: "backlog", label: "Бэклог", sheetTitle: "Общий бэклог" },
-  { key: "done", label: "Готовые и стоп", sheetTitle: "Готовые задачи" },
+export const dashboardTabs: Array<{ key: DashboardTab; label: string; sheetTitle?: string; sheetGid?: string }> = [
+  { key: "actual", label: "Актуальные", sheetTitle: "Актуальные", sheetGid: analyticsSheetGid },
+  { key: "backlog", label: "Бэклог", sheetTitle: "Общий бэклог", sheetGid: backlogSheetGid },
+  { key: "done", label: "Готовые и стоп", sheetTitle: "Готовые задачи", sheetGid: completedSheetGid },
   { key: "all", label: "Все" },
 ];
 

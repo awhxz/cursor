@@ -3,6 +3,8 @@
 // test spreadsheet and producing Google API "Requested entity was not found" responses.
 export const spreadsheetId = "1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ";
 export const analyticsSheetGid = "1654701914";
+export const completedSheetGid = "1363218094";
+export const backlogSheetGid = "1200022421";
 export const defaultSheetGid = process.env.GOOGLE_SHEET_GID || analyticsSheetGid;
 export const dashboardColumnLimit = 9;
 
