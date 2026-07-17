@@ -1,55 +1,100 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { DashboardPayload, DashboardRow } from "@/lib/dashboard-data";
-import { buildKpi, groupCount, scoreTone } from "@/lib/dashboard-data";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DashboardPayload, DashboardRow, SheetInfo } from "@/lib/dashboard-data";
+import {
+  analystPresentation,
+  dashboardTabs,
+  isQueueTask,
+  metricPresentation,
+  rowMatchesTab,
+  statusTone,
+  type DashboardTab,
+} from "@/lib/dashboard-view";
 
-const COLORS = ["#315c7f", "#6f91a9", "#97b6a4", "#d4a373", "#c77d7d", "#8f88a8"];
 const emptyPayload: DashboardPayload = {
   rows: [], columns: [], fetchedAt: "", source: "public-csv", spreadsheetId: "", sheetGid: "", sourceUrl: "", availableSheets: [],
 };
 
-type SortKey = "ticket" | "title" | "customer" | "analyst" | "area" | "value" | "analysisTime" | "status" | "note";
+type SortKey = "ticket" | "title" | "customer" | "analyst" | "area" | "status" | "priority" | "analysisTime" | "note";
 type SortDirection = "asc" | "desc";
 
 const sortValues: Record<SortKey, keyof DashboardRow> = {
   ticket: "__ticket", title: "__title", customer: "__customer", analyst: "__analyst", area: "__area",
-  value: "__value", analysisTime: "__analysisTime", status: "__status", note: "__note",
+  status: "__status", priority: "__value", analysisTime: "__analysisTime", note: "__note",
 };
+
+async function requestSheet(gid?: string): Promise<DashboardPayload> {
+  const params = new URLSearchParams({ ts: String(Date.now()) });
+  if (gid) params.set("gid", gid);
+  const response = await fetch(`/api/sheets?${params.toString()}`, { cache: "no-store" });
+  const json = await response.json();
+  if (!response.ok) throw new Error(json.error || "Ошибка загрузки данных");
+  return json;
+}
+
+function sheetForTab(catalog: SheetInfo[], tab: DashboardTab) {
+  const title = dashboardTabs.find((item) => item.key === tab)?.sheetTitle?.toLowerCase();
+  return title ? catalog.find((sheet) => {
+    const sheetTitle = sheet.title.toLowerCase();
+    return sheetTitle === title || sheetTitle.includes(title) || title.includes(sheetTitle);
+  }) : undefined;
+}
+
+function combinePayloads(payloads: DashboardPayload[], catalog: SheetInfo[]): DashboardPayload {
+  const first = payloads[0];
+  return {
+    ...first,
+    rows: payloads.flatMap((payload) => payload.rows.map((row) => ({ ...row, __id: `${payload.sheetGid}-${row.__id}` }))),
+    fetchedAt: new Date().toISOString(),
+    sheetGid: "",
+    sheetTitle: "Все листы",
+    sourceUrl: `https://docs.google.com/spreadsheets/d/${first.spreadsheetId}/edit`,
+    availableSheets: catalog,
+  };
+}
 
 export default function DashboardPage() {
   const [payload, setPayload] = useState<DashboardPayload>(emptyPayload);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("actual");
   const [customer, setCustomer] = useState("Все");
   const [analyst, setAnalyst] = useState("Все");
   const [area, setArea] = useState("Все");
-  const [valueScore, setValueScore] = useState("Все");
-  const [analysisTime, setAnalysisTime] = useState("Все");
   const [status, setStatus] = useState("Все");
   const [query, setQuery] = useState("");
-  const [selectedGid, setSelectedGid] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("status");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("priority");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const catalogRef = useRef<SheetInfo[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ ts: String(Date.now()) });
-      if (selectedGid) params.set("gid", selectedGid);
-      const response = await fetch(`/api/sheets?${params.toString()}`, { cache: "no-store" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error || "Ошибка загрузки данных");
-      setPayload(json);
-      if (json.sheetGid && json.sheetGid !== selectedGid) setSelectedGid(json.sheetGid);
+      const catalog = catalogRef.current;
+      if (activeTab === "all" && catalog.length) {
+        const sheets = dashboardTabs
+          .filter((tab) => tab.sheetTitle)
+          .map((tab) => sheetForTab(catalog, tab.key))
+          .filter((sheet): sheet is SheetInfo => Boolean(sheet));
+        const results = await Promise.all(sheets.map((sheet) => requestSheet(sheet.gid)));
+        if (results.length) {
+          setPayload(combinePayloads(results, catalog));
+          return;
+        }
+      }
+
+      const targetSheet = sheetForTab(catalog, activeTab);
+      const result = await requestSheet(targetSheet?.gid);
+      if (result.availableSheets?.length) catalogRef.current = result.availableSheets;
+      setPayload(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось обновить данные");
     } finally {
       setLoading(false);
     }
-  }, [selectedGid]);
+  }, [activeTab]);
 
   useEffect(() => {
     loadData();
@@ -57,80 +102,147 @@ export default function DashboardPage() {
     return () => clearInterval(id);
   }, [loadData]);
 
-  const options = useCallback((key: keyof DashboardRow) => ["Все", ...Array.from(new Set(payload.rows.map((row) => String(row[key])))).sort()], [payload.rows]);
-  const customers = useMemo(() => options("__customer"), [options]);
-  const analysts = useMemo(() => options("__analyst"), [options]);
-  const areas = useMemo(() => options("__area"), [options]);
-  const valueScores = useMemo(() => options("__value"), [options]);
-  const analysisTimes = useMemo(() => options("__analysisTime"), [options]);
-  const statuses = useMemo(() => options("__status"), [options]);
+  const rowsForTab = useMemo(() => payload.rows.filter((row) => rowMatchesTab(row, activeTab)), [payload.rows, activeTab]);
+  const filterOptions = useCallback((key: keyof DashboardRow) => ["Все", ...Array.from(new Set(rowsForTab.map((row) => String(row[key])))).sort()], [rowsForTab]);
+  const customers = useMemo(() => filterOptions("__customer"), [filterOptions]);
+  const analysts = useMemo(() => filterOptions("__analyst"), [filterOptions]);
+  const areas = useMemo(() => filterOptions("__area"), [filterOptions]);
+  const statuses = useMemo(() => filterOptions("__status"), [filterOptions]);
 
-  const filtered = useMemo(() => payload.rows.filter((row) => {
-    const haystack = Object.values(row).join(" ").toLowerCase();
+  const filtered = useMemo(() => rowsForTab.filter((row) => {
+    const haystack = [row.__ticket, row.__title, row.__customer, row.__analyst, row.__area, row.__status, row.__note].join(" ").toLowerCase();
     return (customer === "Все" || row.__customer === customer)
       && (analyst === "Все" || row.__analyst === analyst)
       && (area === "Все" || row.__area === area)
-      && (valueScore === "Все" || row.__value === valueScore)
-      && (analysisTime === "Все" || row.__analysisTime === analysisTime)
       && (status === "Все" || row.__status === status)
       && haystack.includes(query.trim().toLowerCase());
-  }), [payload.rows, customer, analyst, area, valueScore, analysisTime, status, query]);
+  }), [rowsForTab, customer, analyst, area, status, query]);
 
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const key = sortValues[sortKey];
-    const leftValue = String(left[key] ?? "");
-    const rightValue = String(right[key] ?? "");
-    const result = leftValue.localeCompare(rightValue, "ru", { numeric: true, sensitivity: "base" });
+    const result = String(left[key] ?? "").localeCompare(String(right[key] ?? ""), "ru", { numeric: true, sensitivity: "base" });
     return sortDirection === "asc" ? result : -result;
   }), [filtered, sortDirection, sortKey]);
 
-  const kpi = buildKpi(filtered);
-  const byAnalyst = groupCount(filtered, "__analyst").slice(0, 8);
-  const byStatus = groupCount(filtered, "__status").slice(0, 8);
-  const resetFilters = () => { setCustomer("Все"); setAnalyst("Все"); setArea("Все"); setValueScore("Все"); setAnalysisTime("Все"); setStatus("Все"); setQuery(""); };
+  const queueRows = useMemo(() => sorted.filter(isQueueTask), [sorted]);
+  const mainRows = useMemo(() => sorted.filter((row) => !isQueueTask(row)), [sorted]);
+  const groups = useMemo(() => groupByAnalyst(mainRows), [mainRows]);
+  const resetFilters = () => { setCustomer("Все"); setAnalyst("Все"); setArea("Все"); setStatus("Все"); setQuery(""); };
+  const changeTab = (tab: DashboardTab) => { resetFilters(); setActiveTab(tab); };
   const changeSort = (key: SortKey) => { if (sortKey === key) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
-  const sheetName = payload.sheetTitle || (payload.sheetGid ? `gid ${payload.sheetGid}` : "лист не выбран");
+  const updatedAt = payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+  const sourceTag = payload.sheetGid ? `gid ${payload.sheetGid}` : payload.sheetTitle || "Google Sheets";
 
-  return <main className="shell">
-    <section className="hero">
-      <div><p className="eyebrow">Google Sheets → веб-дашборд</p><h1>Дашборд руководителя</h1><p className="muted">Актуальная сводка по задачам без ручной выгрузки Excel.</p>{payload.sourceUrl && <p className="source">Источник: <a href={payload.sourceUrl} target="_blank" rel="noreferrer">открыть Google Sheets</a><span>{sheetName}</span></p>}</div>
-      <div className="refresh"><button onClick={loadData} disabled={loading}>{loading ? "Обновляем…" : "Обновить данные"}</button><span>{payload.fetchedAt ? `Обновлено: ${new Date(payload.fetchedAt).toLocaleString("ru-RU")}` : "Данные еще не загружены"}</span></div>
+  return <main className="dashboardShell">
+    <header className="dashboardHeader">
+      <div className="headerCopy">
+        <p className="eyebrow">GOOGLE SHEETS → ВЕБ-ДАШБОРД</p>
+        <h1>Задачи в аналитике</h1>
+        <p className="subtitle">Актуальная сводка по задачам без ручной выгрузки Excel</p>
+        {payload.sourceUrl && <p className="sourceLine">Источник: <a href={payload.sourceUrl} target="_blank" rel="noreferrer">открыть Google Sheets</a><span className="sourceTag">{sourceTag}</span></p>}
+      </div>
+      <div className="refreshPanel">
+        <button className="refreshButton" onClick={loadData} disabled={loading}><RefreshIcon />{loading ? "Обновляем…" : "Обновить данные"}</button>
+        <span>Обновлено: {updatedAt}</span>
+      </div>
+    </header>
+
+    {error && <section className="notice errorNotice"><div><strong>Не удалось загрузить данные</strong><p>{error}</p></div><button onClick={loadData}>Повторить</button></section>}
+
+    <section className="workspace" aria-busy={loading}>
+      <nav className="tabs" aria-label="Разделы задач">
+        {dashboardTabs.map((tab) => <button key={tab.key} className={activeTab === tab.key ? "tab active" : "tab"} onClick={() => changeTab(tab.key)} aria-current={activeTab === tab.key ? "page" : undefined}>{tab.label}</button>)}
+      </nav>
+
+      <div className="controls">
+        <label className="searchControl"><span className="srOnly">Поиск</span><SearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по тикету, названию или комментарию" /></label>
+        <div className="filterGrid">
+          <Filter label="Заказчик" value={customer} values={customers} onChange={setCustomer} />
+          <Filter label="Ответственный" value={analyst} values={analysts} onChange={setAnalyst} />
+          <Filter label="К чему относится" value={area} values={areas} onChange={setArea} />
+          <Filter label="Статус" value={status} values={statuses} onChange={setStatus} />
+          <button className="resetButton" onClick={resetFilters} title="Сбросить фильтры"><ResetIcon />Сбросить</button>
+        </div>
+      </div>
+
+      {loading && !payload.rows.length && <div className="notice loadingNotice"><span className="spinner" />Загружаем актуальные задачи…</div>}
+      {!loading && !error && !filtered.length && <div className="emptyState"><strong>Задачи не найдены</strong><span>Измените поиск или сбросьте фильтры.</span></div>}
+
+      {filtered.length > 0 && <>
+        {mainRows.length > 0 && <section className="tableSection">
+          <div className="sectionHeader"><div><h2>{dashboardTabs.find((tab) => tab.key === activeTab)?.label}</h2><span>{mainRows.length} {taskWord(mainRows.length)}</span></div></div>
+          <div className="tableScroll"><table className="taskTable"><MainTableHead sortKey={sortKey} direction={sortDirection} onSort={changeSort}/><tbody>
+            {groups.map((group) => <AnalystGroup key={group.name} name={group.name} rows={group.rows} />)}
+          </tbody></table></div>
+        </section>}
+
+        {queueRows.length > 0 && <section className="tableSection queueSection">
+          <div className="sectionHeader"><div><h2>Задачи в очереди</h2><span>{queueRows.length} {taskWord(queueRows.length)}</span></div></div>
+          <div className="tableScroll"><table className="taskTable queueTable"><QueueTableHead sortKey={sortKey} direction={sortDirection} onSort={changeSort}/><tbody>{queueRows.map((row) => <TaskRow key={row.__id} row={row} showAnalyst />)}</tbody></table></div>
+        </section>}
+      </>}
     </section>
-
-    <nav className="dashboardTabs" aria-label="Разделы дашборда"><button className="dashboardTab active" aria-current="page">Задачи в аналитике</button></nav>
-    {error && <section className="state error"><b>Не удалось загрузить данные.</b><span>{error}</span><button onClick={loadData}>Повторить</button></section>}
-    {loading && <section className="state">Загружаем актуальные задачи…</section>}
-
-    <section className="filters">
-      {payload.availableSheets.length > 0 && <Filter label="Лист Google Sheets" value={selectedGid || payload.sheetGid} values={payload.availableSheets.map((sheet) => sheet.gid)} labels={Object.fromEntries(payload.availableSheets.map((sheet) => [sheet.gid, sheet.title]))} onChange={(value) => { setSelectedGid(value); resetFilters(); }} />}
-      <Filter label="Заказчик" value={customer} values={customers} onChange={setCustomer} />
-      <Filter label="Ответственный" value={analyst} values={analysts} onChange={setAnalyst} />
-      <Filter label="К чему относится" value={area} values={areas} onChange={setArea} />
-      <Filter label="Ценность" value={valueScore} values={valueScores} onChange={setValueScore} />
-      <Filter label="Время в аналитике" value={analysisTime} values={analysisTimes} onChange={setAnalysisTime} />
-      <Filter label="Статус" value={status} values={statuses} onChange={setStatus} />
-      <label>Поиск<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Тикет, название, комментарий" /></label>
-      <button className="secondary" onClick={resetFilters}>Сбросить фильтры</button>
-    </section>
-
-    {!loading && !error && !payload.rows.length && <section className="state">В выбранном листе нет задач для отображения.</section>}
-
-    <section className="kpis"><Kpi title="Всего задач" value={kpi.total} /><Kpi title="Ответственных" value={kpi.analysts} /><Kpi title="Заказчиков" value={kpi.customers} /><Kpi title="Статусов" value={kpi.statuses} /><Kpi title="Без ответственного" value={kpi.withoutOwner} /></section>
-
-    <section className="grid">
-      <ChartCard title="Задачи по ответственным"><ResponsiveContainer width="100%" height={280}><BarChart data={byAnalyst}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis allowDecimals={false}/><Tooltip/><Bar dataKey="value" fill="#315c7f" radius={[8,8,0,0]}/></BarChart></ResponsiveContainer></ChartCard>
-      <ChartCard title="Задачи по статусам"><ResponsiveContainer width="100%" height={280}><PieChart><Pie data={byStatus} dataKey="value" nameKey="name" outerRadius={100} label>{byStatus.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]}/>)}</Pie><Tooltip/></PieChart></ResponsiveContainer></ChartCard>
-    </section>
-
-    <section className="tableCard"><div className="tableHead"><div><h2>Задачи в аналитике</h2><p>Первые 9 столбцов листа; недельные столбцы не загружаются.</p></div><span>Показано: {sorted.length}</span></div><div className="tableWrap"><table><thead><tr>
-      <SortHeader label="Тикет" column="ticket" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Название" column="title" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Заказчик" column="customer" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Ответственный" column="analyst" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="К чему относится" column="area" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Ценность" column="value" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Время в аналитике" column="analysisTime" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Статус" column="status" active={sortKey} direction={sortDirection} onSort={changeSort}/><SortHeader label="Комментарий" column="note" active={sortKey} direction={sortDirection} onSort={changeSort}/>
-    </tr></thead><tbody>{sorted.map((row) => <TaskRow key={row.__id} row={row}/>)}</tbody></table></div></section>
   </main>;
 }
 
-function Filter({ label, value, values, labels, onChange }: { label: string; value: string; values: string[]; labels?: Record<string, string>; onChange: (value: string) => void }) { return <label>{label}<select value={value} onChange={(event) => onChange(event.target.value)}>{values.map((item) => <option key={item} value={item}>{labels?.[item] || item}</option>)}</select></label>; }
-function Kpi({ title, value }: { title: string; value: number }) { return <article className="kpi"><span>{title}</span><strong>{value}</strong></article>; }
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) { return <article className="card"><h2>{title}</h2>{children}</article>; }
-function SortHeader({ label, column, active, direction, onSort }: { label: string; column: SortKey; active: SortKey; direction: SortDirection; onSort: (key: SortKey) => void }) { const selected = active === column; return <th aria-sort={selected ? (direction === "asc" ? "ascending" : "descending") : "none"}><button className="sortButton" onClick={() => onSort(column)}>{label}<span>{selected ? (direction === "asc" ? "↑" : "↓") : "↕"}</span></button></th>; }
-function ScoreBadge({ value }: { value: string }) { return <span className={`score ${scoreTone(value)}`} title={value ? `Значение: ${value}` : "Значение не заполнено"}>{value || "—"}</span>; }
-function TaskRow({ row }: { row: DashboardRow }) { return <tr><td>{row.__ticketValid ? <a className="ticketLink" href={row.__ticket} target="_blank" rel="noreferrer">{row.__ticket}</a> : (row.__ticket || "—")}</td><td>{row.__title}</td><td>{row.__customer}</td><td>{row.__analyst}</td><td>{row.__area}</td><td><ScoreBadge value={row.__value}/></td><td><ScoreBadge value={row.__analysisTime}/></td><td><span className="statusBadge">{row.__status}</span></td><td>{row.__note || "—"}</td></tr>; }
+function groupByAnalyst(rows: DashboardRow[]) {
+  const map = new Map<string, DashboardRow[]>();
+  rows.forEach((row) => map.set(row.__analyst, [...(map.get(row.__analyst) || []), row]));
+  return Array.from(map, ([name, groupedRows]) => ({ name, rows: groupedRows, meta: analystPresentation(name) }))
+    .sort((left, right) => left.meta.order - right.meta.order || left.meta.label.localeCompare(right.meta.label, "ru"));
+}
+
+function taskWord(count: number) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return "задач";
+  if (last === 1) return "задача";
+  if (last >= 2 && last <= 4) return "задачи";
+  return "задач";
+}
+
+function Filter({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) {
+  return <label className="filterControl"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{values.map((item) => <option key={item}>{item}</option>)}</select><ChevronIcon /></label>;
+}
+
+function MainTableHead({ sortKey, direction, onSort }: SortHeadProps) {
+  return <thead><tr><SortHeader label="Тикет" column="ticket" {...{ sortKey, direction, onSort }} /><SortHeader label="Название" column="title" {...{ sortKey, direction, onSort }} /><SortHeader label="Заказчик" column="customer" {...{ sortKey, direction, onSort }} /><SortHeader label="К чему относится" column="area" {...{ sortKey, direction, onSort }} /><SortHeader label="Статус" column="status" {...{ sortKey, direction, onSort }} /><SortHeader label="Приоритет" column="priority" {...{ sortKey, direction, onSort }} /><SortHeader label="Время в аналитике" column="analysisTime" {...{ sortKey, direction, onSort }} /><SortHeader label="Комментарий" column="note" {...{ sortKey, direction, onSort }} /></tr></thead>;
+}
+
+function QueueTableHead({ sortKey, direction, onSort }: SortHeadProps) {
+  return <thead><tr><SortHeader label="Тикет" column="ticket" {...{ sortKey, direction, onSort }} /><SortHeader label="Название" column="title" {...{ sortKey, direction, onSort }} /><SortHeader label="Заказчик" column="customer" {...{ sortKey, direction, onSort }} /><SortHeader label="Ответственный" column="analyst" {...{ sortKey, direction, onSort }} /><SortHeader label="К чему относится" column="area" {...{ sortKey, direction, onSort }} /><SortHeader label="Статус" column="status" {...{ sortKey, direction, onSort }} /><SortHeader label="Приоритет" column="priority" {...{ sortKey, direction, onSort }} /><SortHeader label="Время" column="analysisTime" {...{ sortKey, direction, onSort }} /><SortHeader label="Комментарий" column="note" {...{ sortKey, direction, onSort }} /></tr></thead>;
+}
+
+type SortHeadProps = { sortKey: SortKey; direction: SortDirection; onSort: (key: SortKey) => void };
+function SortHeader({ label, column, sortKey, direction, onSort }: { label: string; column: SortKey } & SortHeadProps) {
+  const active = sortKey === column;
+  return <th aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}><button className="sortButton" onClick={() => onSort(column)}>{label}<span>{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span></button></th>;
+}
+
+function AnalystGroup({ name, rows }: { name: string; rows: DashboardRow[] }) {
+  const meta = analystPresentation(name);
+  return <><tr className="analystGroup"><td colSpan={8}><div><span className={`analystTag tone-${meta.tone}`}><b>{meta.icon}</b>{meta.label}</span><span className="groupCount">{rows.length} {taskWord(rows.length)}</span></div></td></tr>{rows.map((row) => <TaskRow key={row.__id} row={row} />)}</>;
+}
+
+function TaskRow({ row, showAnalyst = false }: { row: DashboardRow; showAnalyst?: boolean }) {
+  return <tr className="taskRow">
+    <td className="ticketCell">{row.__ticketValid ? <a href={row.__ticket} target="_blank" rel="noreferrer">{row.__ticket}</a> : (row.__ticket || "—")}</td>
+    <td className="titleCell">{row.__title || "—"}</td>
+    <td>{row.__customer || "—"}</td>
+    {showAnalyst && <td><AnalystTag value={row.__analyst} /></td>}
+    <td>{row.__area || "—"}</td>
+    <td><StatusTag value={row.__status} /></td>
+    <td><MetricTag value={row.__value} label="Приоритет" /></td>
+    <td><MetricTag value={row.__analysisTime} label="Время в аналитике" /></td>
+    <td className="commentCell">{row.__note || "—"}</td>
+  </tr>;
+}
+
+function AnalystTag({ value }: { value: string }) { const meta = analystPresentation(value); return <span className={`analystTag compact tone-${meta.tone}`}><b>{meta.icon}</b>{meta.label}</span>; }
+function StatusTag({ value }: { value: string }) { return <span className={`statusTag tone-${statusTone(value)}`}>{value || "—"}</span>; }
+function MetricTag({ value, label }: { value: string; label: string }) { const metric = metricPresentation(value, label); return <span className={`metricTag tone-${metric.tone}`} tabIndex={0} data-tooltip={metric.tooltip}>{metric.text}</span>; }
+
+function SearchIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m17 17-3.7-3.7m1.7-4.1a5.8 5.8 0 1 1-11.6 0 5.8 5.8 0 0 1 11.6 0Z" /></svg>; }
+function RefreshIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 6.5A6.5 6.5 0 1 0 16.2 13M16 3v3.5h-3.5" /></svg>; }
+function ResetIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M7 6V4h6v2m-7 0 .7 10h6.6L14 6M8.5 9v4m3-4v4" /></svg>; }
+function ChevronIcon() { return <svg className="chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>; }
