@@ -2,6 +2,7 @@ import type { DashboardRow } from "./dashboard-data";
 
 export type DashboardTab = "actual" | "backlog" | "done" | "all";
 export type Tone = "red" | "orange" | "yellow" | "green" | "blue" | "peach" | "gray" | "violet";
+export type DashboardSelections = { clients: string[]; responsibles: string[]; directions: string[]; statuses: string[] };
 
 export const dashboardTabs: Array<{ key: DashboardTab; label: string; sheetTitle?: string }> = [
   { key: "actual", label: "Актуальные", sheetTitle: "Актуальные" },
@@ -11,6 +12,10 @@ export const dashboardTabs: Array<{ key: DashboardTab; label: string; sheetTitle
 ];
 
 const normalized = (value: string) => value.trim().toLowerCase().replaceAll("ё", "е");
+const isUnassigned = (value: string) => {
+  const analyst = normalized(value);
+  return !analyst || analyst.includes("без ответственного") || analyst.includes("не назначен");
+};
 
 export function rowMatchesTab(row: DashboardRow, tab: DashboardTab) {
   if (tab === "all") return true;
@@ -21,7 +26,17 @@ export function rowMatchesTab(row: DashboardRow, tab: DashboardTab) {
 }
 
 export function isQueueTask(row: DashboardRow) {
-  return normalized(row.__status) === "в очереди";
+  const status = normalized(row.__status);
+  return status === "в очереди" || (status === "не согласовано" && isUnassigned(row.__analyst));
+}
+
+export function rowMatchesSelections(row: DashboardRow, selections: DashboardSelections, query: string) {
+  const haystack = [row.__ticket, row.__title, row.__customer, row.__analyst, row.__area, row.__status, row.__note].join(" ").toLowerCase();
+  return selections.clients.includes(row.__customer)
+    && selections.responsibles.includes(row.__analyst)
+    && selections.directions.includes(row.__area)
+    && selections.statuses.includes(row.__status)
+    && haystack.includes(query.trim().toLowerCase());
 }
 
 export function analystPresentation(value: string): { label: string; icon: string; tone: Tone; order: number } {
@@ -30,7 +45,7 @@ export function analystPresentation(value: string): { label: string; icon: strin
   if (name.includes("настя п") || name === "настя") return { label: value, icon: "●", tone: "green", order: 1 };
   if (name.includes("саша г") || name === "саша") return { label: value, icon: "◆", tone: "blue", order: 2 };
   if (name.includes("таня к") || name === "таня") return { label: value, icon: "▲", tone: "peach", order: 3 };
-  if (!name || name.includes("без ответственного") || name.includes("не назначен")) {
+  if (isUnassigned(value)) {
     return { label: "Не назначен", icon: "—", tone: "gray", order: 99 };
   }
   return { label: value, icon: "•", tone: "gray", order: 50 };
