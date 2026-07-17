@@ -3,9 +3,10 @@ import { fetchSheetsData } from "@/lib/server-sheets";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const data = await fetchSheetsData();
+    const { searchParams } = new URL(request.url);
+    const data = await fetchSheetsData(searchParams.get("gid") || undefined);
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json(

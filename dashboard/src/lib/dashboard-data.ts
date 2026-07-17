@@ -1,17 +1,19 @@
 import { columnAliases } from "@/config/sheets";
 
 export type RawRow = Record<string, string>;
-// Dashboard rows include raw string cells plus computed boolean flags such as __dateValid.
+// Dashboard rows include raw string cells plus computed validation flags.
 export type DashboardRow = Record<string, string | boolean> & {
   __id: string;
   __analyst: string;
   __ticket: string;
   __title: string;
+  __customer: string;
   __status: string;
-  __priority: string;
+  __area: string;
+  __value: string;
+  __analysisTime: string;
   __note: string;
-  __date: string;
-  __dateValid: boolean;
+  __ticketValid: boolean;
 };
 
 export type DashboardPayload = {
@@ -19,9 +21,19 @@ export type DashboardPayload = {
   columns: string[];
   fetchedAt: string;
   source: "public-csv" | "service-account";
+  spreadsheetId: string;
+  sheetGid: string;
+  sourceUrl: string;
+  sheetTitle?: string;
+  availableSheets: SheetInfo[];
 };
 
-export const normalizeHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replaceAll("ё", "е");
+export type SheetInfo = {
+  gid: string;
+  title: string;
+};
+
+export const normalizeHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replaceAll("ё", "е").replace(/\s+/g, " ");
 export const normalizeText = (value: unknown) => String(value ?? "").trim();
 
 export function pick(row: RawRow, aliases: readonly string[]) {
@@ -32,43 +44,46 @@ export function pick(row: RawRow, aliases: readonly string[]) {
   return "";
 }
 
-export function parseDate(value: string): Date | null {
-  if (!value) return null;
-  const cleaned = value.trim();
-  const parts = cleaned.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
-  if (parts) {
-    const year = Number(parts[3].length === 2 ? `20${parts[3]}` : parts[3]);
-    const date = new Date(Date.UTC(year, Number(parts[2]) - 1, Number(parts[1])));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const date = new Date(cleaned);
-  return Number.isNaN(date.getTime()) ? null : date;
+function pickWithPositionFallback(row: RawRow, aliases: readonly string[], position: number) {
+  return pick(row, aliases) || Object.values(row)[position] || "";
+}
+
+export const isHttpUrl = (value: string) => /^https?:\/\/\S+$/i.test(value.trim());
+
+export function scoreTone(value: string): "danger" | "orange" | "yellow" | "green" {
+  if (value.trim() === "2") return "orange";
+  if (value.trim() === "3") return "yellow";
+  if (value.trim() === "4") return "green";
+  return "danger";
 }
 
 export function toDashboardRows(rows: RawRow[]): DashboardRow[] {
   return rows.map((row, index) => {
-    const dateRaw = pick(row, columnAliases.date);
+    const ticket = pickWithPositionFallback(row, columnAliases.ticket, 0);
     return {
       ...row,
-      __id: `${pick(row, columnAliases.ticket) || "row"}-${index}`,
-      __analyst: pick(row, columnAliases.analyst) || "Без ответственного",
-      __ticket: pick(row, columnAliases.ticket),
-      __title: pick(row, columnAliases.title) || Object.values(row).find(Boolean) || "Без названия",
-      __status: pick(row, columnAliases.status) || "Без статуса",
-      __priority: pick(row, columnAliases.priority) || "Без приоритета",
-      __note: pick(row, columnAliases.note),
-      __date: dateRaw,
-      __dateValid: Boolean(parseDate(dateRaw)),
+      __id: `${ticket || "row"}-${index}`,
+      __analyst: pickWithPositionFallback(row, columnAliases.analyst, 3) || "Без ответственного",
+      __ticket: ticket,
+      __title: pickWithPositionFallback(row, columnAliases.title, 1) || "Без названия",
+      __customer: pickWithPositionFallback(row, columnAliases.customer, 2) || "Без заказчика",
+      __status: pickWithPositionFallback(row, columnAliases.status, 7) || "Без статуса",
+      __area: pickWithPositionFallback(row, columnAliases.area, 4) || "Не указано",
+      __value: pickWithPositionFallback(row, columnAliases.value, 5),
+      __analysisTime: pickWithPositionFallback(row, columnAliases.analysisTime, 6),
+      __note: pickWithPositionFallback(row, columnAliases.note, 8),
+      __ticketValid: isHttpUrl(ticket),
     };
   });
 }
 
 export function buildKpi(rows: DashboardRow[]) {
   const analysts = new Set(rows.map((row) => row.__analyst).filter((value) => value !== "Без ответственного"));
+  const customers = new Set(rows.map((row) => row.__customer).filter((value) => value !== "Без заказчика"));
   const statuses = new Set(rows.map((row) => row.__status).filter((value) => value !== "Без статуса"));
   const withoutOwner = rows.filter((row) => row.__analyst === "Без ответственного").length;
-  const invalidDates = rows.filter((row) => row.__date && !row.__dateValid).length;
-  return { total: rows.length, analysts: analysts.size, statuses: statuses.size, withoutOwner, invalidDates };
+  const invalidTickets = rows.filter((row) => !row.__ticketValid).length;
+  return { total: rows.length, analysts: analysts.size, customers: customers.size, statuses: statuses.size, withoutOwner, invalidTickets };
 }
 
 export function groupCount(rows: DashboardRow[], key: keyof DashboardRow) {

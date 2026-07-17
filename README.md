@@ -33,19 +33,25 @@ npm run build
 - Spreadsheet ID: `1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ`
 - GID листа: `1200022421`
 
-Дашборд обращается к `/api/sheets`, серверный обработчик пробует прочитать публичный CSV и возвращает JSON для интерфейса. Данные не копируются в код и обновляются без нового деплоя.
+Дашборд обращается к `/api/sheets`, серверный обработчик пробует прочитать публичный CSV и возвращает JSON для интерфейса. Данные не копируются в код и обновляются без нового деплоя. В верхней части интерфейса показывается ссылка на Google Sheets, откуда загружены данные.
+
+Если используется service account, `GOOGLE_SHEET_GID` можно не указывать: дашборд сам получит список видимых листов таблицы и покажет переключатель листов в фильтрах. GID каждого листа вручную в отдельную таблицу добавлять не нужно.
 
 Если таблица закрыта, добавьте в Vercel переменные окружения из `dashboard/.env.example`:
 
 ```env
 GOOGLE_SPREADSHEET_ID=1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ
+# Необязательно для service account. Для публичного CSV нужен конкретный лист.
 GOOGLE_SHEET_GID=1200022421
 GOOGLE_SERVICE_ACCOUNT_EMAIL=dashboard-reader@project.iam.gserviceaccount.com
 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-GOOGLE_SHEET_RANGE='Лист1!A:Z'
+# Необязательно. Указывайте только если нужно принудительно читать конкретный range.
+GOOGLE_SHEET_RANGE='Лист1!A:I'
 ```
 
 Service account нужно выдать доступ `Viewer / Читатель` к Google Sheets. Секреты нельзя добавлять в Git.
+
+Правила переноса первых девяти столбцов листа «Актуальные» описаны в [`docs/dashboard-data-spec.md`](docs/dashboard-data-spec.md). Отдельное ТЗ на валидацию и перемещение строк находится в [`docs/google-sheets-script-spec.md`](docs/google-sheets-script-spec.md), а готовый Google Apps Script — в [`google-apps-script/task-routing.gs`](google-apps-script/task-routing.gs).
 
 ## Обновление данных
 
