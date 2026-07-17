@@ -33,20 +33,8 @@ export type SheetInfo = {
   title: string;
 };
 
-export function clean(value: unknown) {
-  return String(value ?? "")
-    .replace(/\u00a0/g, " ")
-    .replace(/[\u200b-\u200d\ufeff]/g, "")
-    .trim();
-}
-
-export function isEmptyValue(value: unknown) {
-  const normalized = clean(value);
-  return normalized === "" || normalized === "-" || normalized === "—";
-}
-
-export const normalizeHeader = (value: unknown) => clean(value).toLowerCase().replaceAll("ё", "е").replace(/\s+/g, " ");
-export const normalizeText = (value: unknown) => isEmptyValue(value) ? "" : clean(value);
+export const normalizeHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replaceAll("ё", "е").replace(/\s+/g, " ");
+export const normalizeText = (value: unknown) => String(value ?? "").trim();
 
 export function pick(row: RawRow, aliases: readonly string[]) {
   for (const alias of aliases) {
@@ -61,20 +49,6 @@ function pickWithPositionFallback(row: RawRow, aliases: readonly string[], posit
 }
 
 export const isHttpUrl = (value: string) => /^https?:\/\/\S+$/i.test(value.trim());
-export const isValidTicket = (value: unknown) => {
-  const ticket = clean(value);
-  return /^BS-\d+$/i.test(ticket) || /^https?:\/\/\S+$/i.test(ticket);
-};
-
-export function normalizeRawRow(row: RawRow): RawRow {
-  return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, normalizeText(value)]));
-}
-
-export function isValidRawTask(row: RawRow) {
-  const title = pickWithPositionFallback(row, columnAliases.title, 1);
-  const ticket = pickWithPositionFallback(row, columnAliases.ticket, 0);
-  return !isEmptyValue(title) || isValidTicket(ticket);
-}
 
 export function scoreTone(value: string): "danger" | "orange" | "yellow" | "green" {
   if (value.trim() === "2") return "orange";
@@ -84,12 +58,12 @@ export function scoreTone(value: string): "danger" | "orange" | "yellow" | "gree
 }
 
 export function toDashboardRows(rows: RawRow[]): DashboardRow[] {
-  return rows.map(normalizeRawRow).filter(isValidRawTask).map((row, index) => {
+  return rows.map((row, index) => {
     const ticket = pickWithPositionFallback(row, columnAliases.ticket, 0);
     return {
       ...row,
       __id: `${ticket || "row"}-${index}`,
-      __analyst: pickWithPositionFallback(row, columnAliases.analyst, 3) || "Не назначен",
+      __analyst: pickWithPositionFallback(row, columnAliases.analyst, 3) || "Без ответственного",
       __ticket: ticket,
       __title: pickWithPositionFallback(row, columnAliases.title, 1) || "Без названия",
       __customer: pickWithPositionFallback(row, columnAliases.customer, 2) || "Без заказчика",
@@ -104,10 +78,10 @@ export function toDashboardRows(rows: RawRow[]): DashboardRow[] {
 }
 
 export function buildKpi(rows: DashboardRow[]) {
-  const analysts = new Set(rows.map((row) => row.__analyst).filter((value) => value !== "Без ответственного" && value !== "Не назначен"));
+  const analysts = new Set(rows.map((row) => row.__analyst).filter((value) => value !== "Без ответственного"));
   const customers = new Set(rows.map((row) => row.__customer).filter((value) => value !== "Без заказчика"));
   const statuses = new Set(rows.map((row) => row.__status).filter((value) => value !== "Без статуса"));
-  const withoutOwner = rows.filter((row) => row.__analyst === "Без ответственного" || row.__analyst === "Не назначен").length;
+  const withoutOwner = rows.filter((row) => row.__analyst === "Без ответственного").length;
   return { total: rows.length, analysts: analysts.size, customers: customers.size, statuses: statuses.size, withoutOwner };
 }
 

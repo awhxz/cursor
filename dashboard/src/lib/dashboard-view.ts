@@ -1,10 +1,7 @@
-import { clean, type DashboardRow } from "./dashboard-data";
+import type { DashboardRow } from "./dashboard-data";
 
 export type DashboardTab = "actual" | "backlog" | "done" | "all";
 export type Tone = "red" | "orange" | "yellow" | "green" | "blue" | "peach" | "gray" | "violet";
-export type DashboardSelections = { clients: string[]; responsibles: string[]; directions: string[]; statuses: string[] };
-export const defaultClientExclusions = ["Баг", "Без заказчика"];
-export const defaultDirectionExclusions = ["Баг/Недоработка", "Процессные задачи"];
 
 export const dashboardTabs: Array<{ key: DashboardTab; label: string; sheetTitle?: string }> = [
   { key: "actual", label: "Актуальные", sheetTitle: "Актуальные" },
@@ -13,15 +10,11 @@ export const dashboardTabs: Array<{ key: DashboardTab; label: string; sheetTitle
   { key: "all", label: "Все" },
 ];
 
-const normalized = (value: string) => clean(value).toLowerCase().replaceAll("ё", "е").replace(/\s+/g, " ");
+const normalized = (value: string) => value.trim().toLowerCase().replaceAll("ё", "е");
 const isUnassigned = (value: string) => {
   const analyst = normalized(value);
   return !analyst || analyst.includes("без ответственного") || analyst.includes("не назначен");
 };
-
-export function hasAssignedOwner(row: DashboardRow) {
-  return !isUnassigned(row.__analyst);
-}
 
 export function rowMatchesTab(row: DashboardRow, tab: DashboardTab) {
   if (tab === "all") return true;
@@ -33,33 +26,7 @@ export function rowMatchesTab(row: DashboardRow, tab: DashboardTab) {
 
 export function isQueueTask(row: DashboardRow) {
   const status = normalized(row.__status);
-  return status === "в очереди" && !hasAssignedOwner(row);
-}
-
-export function rowMatchesSelections(row: DashboardRow, selections: DashboardSelections, query: string) {
-  const haystack = [row.__ticket, row.__title, row.__customer, row.__analyst, row.__area, row.__status, row.__note].join(" ").toLowerCase();
-  return selections.clients.includes(row.__customer)
-    && selections.responsibles.includes(row.__analyst)
-    && selections.directions.includes(row.__area)
-    && selections.statuses.includes(row.__status)
-    && haystack.includes(query.trim().toLowerCase());
-}
-
-export function defaultFilterSelection(options: string[], excludedValues: string[] = []) {
-  const excluded = new Set(excludedValues.map(normalized));
-  return options.filter((option) => !excluded.has(normalized(option)));
-}
-
-export function reconcileFilterSelection(previousOptions: string[], options: string[], selected: string[], excludedValues: string[] = []) {
-  const previous = new Set(previousOptions.map(normalized));
-  const selectedValues = new Set(selected.map(normalized));
-  const excluded = new Set(excludedValues.map(normalized));
-  return options.filter((option) => selectedValues.has(normalized(option)) || (!previous.has(normalized(option)) && !excluded.has(normalized(option))));
-}
-
-export function sameFilterSelection(left: string[], right: string[]) {
-  const leftValues = new Set(left.map(normalized));
-  return leftValues.size === new Set(right.map(normalized)).size && right.every((value) => leftValues.has(normalized(value)));
+  return status === "в очереди" || (status === "не согласовано" && isUnassigned(row.__analyst));
 }
 
 export function analystPresentation(value: string): { label: string; icon: string; tone: Tone; order: number } {

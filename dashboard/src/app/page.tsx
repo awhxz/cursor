@@ -1,20 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ColorTag, MultiSelect, ResponsibleTag } from "@/components/multi-select";
+import { ColorTag, MultiSelect, ResponsibleTag } from "@/components/dashboard-ui";
 import type { DashboardPayload, DashboardRow, SheetInfo } from "@/lib/dashboard-data";
 import {
   analystPresentation,
   dashboardTabs,
-  defaultClientExclusions,
-  defaultDirectionExclusions,
-  defaultFilterSelection,
   isQueueTask,
   metricPresentation,
-  reconcileFilterSelection,
   rowMatchesTab,
-  rowMatchesSelections,
-  sameFilterSelection,
+  statusTone,
   type DashboardTab,
 } from "@/lib/dashboard-view";
 
@@ -24,7 +19,6 @@ const emptyPayload: DashboardPayload = {
 
 type SortKey = "ticket" | "title" | "customer" | "analyst" | "area" | "status" | "priority" | "analysisTime" | "note";
 type SortDirection = "asc" | "desc";
-const noDefaultExclusions: string[] = [];
 
 const sortValues: Record<SortKey, keyof DashboardRow> = {
   ticket: "__ticket", title: "__title", customer: "__customer", analyst: "__analyst", area: "__area",
@@ -66,6 +60,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<DashboardTab>("actual");
+  const [customer, setCustomer] = useState<string[]>([]);
+  const [analyst, setAnalyst] = useState<string[]>([]);
+  const [area, setArea] = useState<string[]>([]);
+  const [status, setStatus] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -106,22 +104,20 @@ export default function DashboardPage() {
   }, [loadData]);
 
   const rowsForTab = useMemo(() => payload.rows.filter((row) => rowMatchesTab(row, activeTab)), [payload.rows, activeTab]);
-  const filterOptions = useCallback((key: keyof DashboardRow) => Array.from(new Set(rowsForTab.map((row) => String(row[key])))).sort(), [rowsForTab]);
-  const clients = useMemo(() => filterOptions("__customer"), [filterOptions]);
-  const responsibles = useMemo(() => filterOptions("__analyst"), [filterOptions]);
-  const directions = useMemo(() => filterOptions("__area"), [filterOptions]);
+  const filterOptions = useCallback((key: keyof DashboardRow) => Array.from(new Set(rowsForTab.map((row) => String(row[key])).filter(Boolean))).sort(), [rowsForTab]);
+  const customers = useMemo(() => filterOptions("__customer"), [filterOptions]);
+  const analysts = useMemo(() => filterOptions("__analyst"), [filterOptions]);
+  const areas = useMemo(() => filterOptions("__area"), [filterOptions]);
   const statuses = useMemo(() => filterOptions("__status"), [filterOptions]);
-  const clientFilter = useDynamicMultiSelection(clients, defaultClientExclusions);
-  const responsibleFilter = useDynamicMultiSelection(responsibles);
-  const directionFilter = useDynamicMultiSelection(directions, defaultDirectionExclusions);
-  const statusFilter = useDynamicMultiSelection(statuses);
 
-  const filtered = useMemo(() => rowsForTab.filter((row) => rowMatchesSelections(row, {
-    clients: clientFilter.selected,
-    responsibles: responsibleFilter.selected,
-    directions: directionFilter.selected,
-    statuses: statusFilter.selected,
-  }, query)), [rowsForTab, clientFilter.selected, responsibleFilter.selected, directionFilter.selected, statusFilter.selected, query]);
+  const filtered = useMemo(() => rowsForTab.filter((row) => {
+    const haystack = [row.__ticket, row.__title, row.__customer, row.__analyst, row.__area, row.__status, row.__note].join(" ").toLowerCase();
+    return (!customer.length || customer.includes(row.__customer))
+      && (!analyst.length || analyst.includes(row.__analyst))
+      && (!area.length || area.includes(row.__area))
+      && (!status.length || status.includes(row.__status))
+      && haystack.includes(query.trim().toLowerCase());
+  }), [rowsForTab, customer, analyst, area, status, query]);
 
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const key = sortValues[sortKey];
@@ -132,13 +128,8 @@ export default function DashboardPage() {
   const queueRows = useMemo(() => sorted.filter(isQueueTask), [sorted]);
   const mainRows = useMemo(() => sorted.filter((row) => !isQueueTask(row)), [sorted]);
   const groups = useMemo(() => groupByAnalyst(mainRows), [mainRows]);
-  const filtersChanged = activeTab !== "actual" || Boolean(query.trim())
-    || !clientFilter.isDefault
-    || !responsibleFilter.isDefault
-    || !directionFilter.isDefault
-    || !statusFilter.isDefault;
-  const resetFilters = () => { clientFilter.reset(); responsibleFilter.reset(); directionFilter.reset(); statusFilter.reset(); setQuery(""); setActiveTab("actual"); };
-  const changeTab = (tab: DashboardTab) => setActiveTab(tab);
+  const resetFilters = () => { setCustomer([]); setAnalyst([]); setArea([]); setStatus([]); setQuery(""); };
+  const changeTab = (tab: DashboardTab) => { resetFilters(); setActiveTab(tab); };
   const changeSort = (key: SortKey) => { if (sortKey === key) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
   const updatedAt = payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
   const sourceTag = payload.sheetGid ? `gid ${payload.sheetGid}` : payload.sheetTitle || "Google Sheets";
@@ -167,11 +158,11 @@ export default function DashboardPage() {
       <div className="controls">
         <label className="searchControl"><span className="srOnly">Поиск</span><SearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по тикету, названию или комментарию" /></label>
         <div className="filterGrid">
-          <MultiSelect label="Заказчик" options={clients} selected={clientFilter.selected} onChange={clientFilter.setSelected} renderOption={(option) => <ColorTag value={option} />} />
-          <MultiSelect label="Ответственный" options={responsibles} selected={responsibleFilter.selected} onChange={responsibleFilter.setSelected} renderOption={(option) => <ResponsibleTag value={option} compact />} />
-          <MultiSelect label="К чему относится" options={directions} selected={directionFilter.selected} onChange={directionFilter.setSelected} renderOption={(option) => <ColorTag value={option} />} />
-          <MultiSelect label="Статус" options={statuses} selected={statusFilter.selected} onChange={statusFilter.setSelected} renderOption={(option) => <ColorTag value={option} kind="status" />} />
-          {filtersChanged && <button className="resetButton" onClick={resetFilters} title="Сбросить фильтры"><ResetIcon />Сбросить</button>}
+          <MultiSelect label="Заказчик" options={customers} selected={customer} onChange={setCustomer} disabled={loading && !payload.rows.length} />
+          <MultiSelect label="Ответственный" options={analysts} selected={analyst} onChange={setAnalyst} disabled={loading && !payload.rows.length} />
+          <MultiSelect label="К чему относится" options={areas} selected={area} onChange={setArea} disabled={loading && !payload.rows.length} />
+          <MultiSelect label="Статус" options={statuses} selected={status} onChange={setStatus} disabled={loading && !payload.rows.length} />
+          <button className="resetButton" onClick={resetFilters} title="Сбросить фильтры"><ResetIcon />Сбросить</button>
         </div>
       </div>
 
@@ -200,26 +191,6 @@ function groupByAnalyst(rows: DashboardRow[]) {
   rows.forEach((row) => map.set(row.__analyst, [...(map.get(row.__analyst) || []), row]));
   return Array.from(map, ([name, groupedRows]) => ({ name, rows: groupedRows, meta: analystPresentation(name) }))
     .sort((left, right) => left.meta.order - right.meta.order || left.meta.label.localeCompare(right.meta.label, "ru"));
-}
-
-function useDynamicMultiSelection(options: string[], excludedValues: string[] = noDefaultExclusions) {
-  const [userSelection, setUserSelection] = useState<string[] | null>(null);
-  const previousOptions = useRef<string[]>([]);
-  const defaultSelection = useMemo(() => defaultFilterSelection(options, excludedValues), [options, excludedValues]);
-  const selected = useMemo(() => userSelection === null
-    ? defaultSelection
-    : reconcileFilterSelection(previousOptions.current, options, userSelection, excludedValues), [userSelection, defaultSelection, options, excludedValues]);
-
-  useEffect(() => {
-    if (userSelection !== null && !sameFilterSelection(userSelection, selected)) setUserSelection(selected);
-    previousOptions.current = options;
-  }, [options, selected, userSelection]);
-
-  const setSelected = useCallback((next: string[]) => {
-    setUserSelection(sameFilterSelection(next, defaultSelection) ? null : next);
-  }, [defaultSelection]);
-  const reset = useCallback(() => setUserSelection(null), []);
-  return { selected, setSelected, reset, isDefault: sameFilterSelection(selected, defaultSelection) };
 }
 
 function taskWord(count: number) {
@@ -253,17 +224,18 @@ function TaskRow({ row, showAnalyst = false }: { row: DashboardRow; showAnalyst?
   return <tr className="taskRow">
     <td className="ticketCell">{row.__ticketValid ? <a href={row.__ticket} target="_blank" rel="noreferrer">{row.__ticket}</a> : (row.__ticket || "—")}</td>
     <td className="titleCell">{row.__title || "—"}</td>
-    <td><ColorTag value={row.__customer} /></td>
+    <td>{row.__customer || "—"}</td>
     {showAnalyst && <td><ResponsibleTag value={row.__analyst} compact /></td>}
-    <td><ColorTag value={row.__area} /></td>
-    <td><ColorTag value={row.__status} kind="status" /></td>
+    <td>{row.__area || "—"}</td>
+    <td><StatusTag value={row.__status} /></td>
     <td><MetricTag value={row.__value} label="Приоритет" /></td>
     <td><MetricTag value={row.__analysisTime} label="Время в аналитике" /></td>
     <td className="commentCell">{row.__note || "—"}</td>
   </tr>;
 }
 
-function MetricTag({ value, label }: { value: string; label: string }) { const metric = metricPresentation(value, label); return <span className={`metricTag tone-${metric.tone}`} tabIndex={0} data-tooltip={metric.tooltip}>{metric.text}</span>; }
+function StatusTag({ value }: { value: string }) { return <ColorTag tone={statusTone(value)} className="statusTag">{value || "—"}</ColorTag>; }
+function MetricTag({ value, label }: { value: string; label: string }) { const metric = metricPresentation(value, label); return <ColorTag tone={metric.tone} className="metricTag"><span tabIndex={0} data-tooltip={metric.tooltip}>{metric.text}</span></ColorTag>; }
 
 function SearchIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m17 17-3.7-3.7m1.7-4.1a5.8 5.8 0 1 1-11.6 0 5.8 5.8 0 0 1 11.6 0Z" /></svg>; }
 function RefreshIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 6.5A6.5 6.5 0 1 0 16.2 13M16 3v3.5h-3.5" /></svg>; }
