@@ -1,5 +1,6 @@
 export const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID || "1HB29ZDJvyPuyfG5z4MguTEhJ4_OngRqDVRxKfqV9rWQ";
-export const defaultSheetGid = process.env.GOOGLE_SHEET_GID || "1200022421";
+export const analyticsSheetGid = "1654701914";
+export const defaultSheetGid = process.env.GOOGLE_SHEET_GID || analyticsSheetGid;
 export const dashboardColumnLimit = 9;
 
 export function buildSheetUrl(gid: string = defaultSheetGid) {

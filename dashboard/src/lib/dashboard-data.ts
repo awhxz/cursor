@@ -82,8 +82,7 @@ export function buildKpi(rows: DashboardRow[]) {
   const customers = new Set(rows.map((row) => row.__customer).filter((value) => value !== "Без заказчика"));
   const statuses = new Set(rows.map((row) => row.__status).filter((value) => value !== "Без статуса"));
   const withoutOwner = rows.filter((row) => row.__analyst === "Без ответственного").length;
-  const invalidTickets = rows.filter((row) => !row.__ticketValid).length;
-  return { total: rows.length, analysts: analysts.size, customers: customers.size, statuses: statuses.size, withoutOwner, invalidTickets };
+  return { total: rows.length, analysts: analysts.size, customers: customers.size, statuses: statuses.size, withoutOwner };
 }
 
 export function groupCount(rows: DashboardRow[], key: keyof DashboardRow) {

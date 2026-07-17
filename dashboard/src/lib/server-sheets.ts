@@ -1,6 +1,6 @@
 import { google, sheets_v4 } from "googleapis";
 import Papa from "papaparse";
-import { buildSheetUrl, dashboardColumnLimit, defaultSheetGid, spreadsheetId } from "@/config/sheets";
+import { analyticsSheetGid, buildSheetUrl, dashboardColumnLimit, defaultSheetGid, spreadsheetId } from "@/config/sheets";
 import { normalizeHeader, normalizeText, RawRow, toDashboardRows, DashboardPayload, SheetInfo } from "./dashboard-data";
 
 function rowsFromMatrix(values: unknown[][]): { rows: RawRow[]; columns: string[] } {
@@ -66,7 +66,9 @@ async function getAvailableSheets(sheets: sheets_v4.Sheets): Promise<SheetInfo[]
 
 function resolveServiceAccountSheet(availableSheets: SheetInfo[], requestedGid?: string) {
   if (!availableSheets.length) throw new Error("В Google Sheets не найдено видимых листов");
-  return availableSheets.find((sheet) => sheet.gid === requestedGid) || availableSheets[0];
+  return availableSheets.find((sheet) => sheet.gid === requestedGid)
+    || availableSheets.find((sheet) => sheet.gid === analyticsSheetGid)
+    || availableSheets[0];
 }
 
 async function fetchWithServiceAccount(requestedGid?: string): Promise<DashboardPayload> {
@@ -76,8 +78,10 @@ async function fetchWithServiceAccount(requestedGid?: string): Promise<Dashboard
   const auth = new google.auth.JWT({ email, key: privateKey, scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"] });
   const sheets = google.sheets({ version: "v4", auth });
   const availableSheets = await getAvailableSheets(sheets);
-  const selectedSheet = resolveServiceAccountSheet(availableSheets, requestedGid || process.env.GOOGLE_SHEET_GID);
-  const range = process.env.GOOGLE_SHEET_RANGE || quoteSheetTitle(selectedSheet.title);
+  const selectedSheet = resolveServiceAccountSheet(availableSheets, requestedGid || defaultSheetGid);
+  // Range is always built from current metadata. This avoids stale values such as "Лист1!A:I"
+  // in Vercel environment variables causing Google API "Requested entity was not found" errors.
+  const range = quoteSheetTitle(selectedSheet.title);
   const result = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const { rows, columns } = rowsFromMatrix((result.data.values || []) as unknown[][]);
   return {
@@ -98,6 +102,16 @@ export async function fetchSheetsData(requestedGid?: string): Promise<DashboardP
   try {
     return await fetchPublicCsv(gid);
   } catch (error) {
+    // If Vercel still contains an obsolete GOOGLE_SHEET_GID, retry the known "Актуальные"
+    // tab before switching to service-account access.
+    if (!requestedGid && gid !== analyticsSheetGid) {
+      try {
+        return await fetchPublicCsv(analyticsSheetGid);
+      } catch (retryError) {
+        // Continue to the secure service-account fallback below.
+        void retryError;
+      }
+    }
     if (hasServiceAccountCredentials()) return fetchWithServiceAccount(requestedGid);
     const details = error instanceof Error ? error.message : "неизвестная ошибка";
     throw new Error(`${details}. Таблица закрыта для публичного CSV: откройте доступ «Anyone with the link / Viewer» или добавьте service account переменные в Vercel.`);

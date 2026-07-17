@@ -54,7 +54,6 @@ th { position: sticky; top: 0; z-index: 1; background: #fbfcfd; }
 .score.yellow { background: #fef0c7; color: #713b12; }
 .score.green { background: #abefc6; color: #05603a; }
 .statusBadge { display: inline-flex; border-radius: 999px; background: #e8eef3; color: var(--accent); padding: 5px 10px; font-size: 12px; font-weight: 800; white-space: nowrap; }
-.invalidValue { color: var(--danger); font-weight: 700; }
 
 @media (max-width: 980px) {
   .shell { padding: 20px; }
