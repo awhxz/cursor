@@ -131,10 +131,11 @@ export default function DashboardPage() {
     return sortDirection === "asc" ? result : -result;
   }), [filtered, sortDirection, sortKey]);
 
-  const queueRows = useMemo(() => sorted.filter(isQueueTask), [sorted]);
-  const mainRows = useMemo(() => sorted.filter((row) => !isQueueTask(row)), [sorted]);
+  const separateQueue = activeTab === "actual";
+  const queueRows = useMemo(() => separateQueue ? sorted.filter(isQueueTask) : [], [separateQueue, sorted]);
+  const mainRows = useMemo(() => separateQueue ? sorted.filter((row) => !isQueueTask(row)) : sorted, [separateQueue, sorted]);
   const groups = useMemo(() => groupByAnalyst(mainRows), [mainRows]);
-  const groupByResponsible = activeTab === "actual" || activeTab === "all";
+  const groupByResponsible = activeTab === "actual";
   const resetFilters = () => { setCustomer([]); setAnalyst([]); setArea([]); setStatus([]); setQuery(""); };
   const changeTab = (tab: DashboardTab) => { resetFilters(); setActiveTab(tab); };
   const changeSort = (key: SortKey) => { if (sortKey === key) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
@@ -231,15 +232,15 @@ function AnalystGroup({ name, rows }: { name: string; rows: DashboardRow[] }) {
 
 function TaskRow({ row, showAnalyst = false }: { row: DashboardRow; showAnalyst?: boolean }) {
   return <tr className="taskRow">
-    <td className="ticketCell">{row.__ticketValid ? <a href={row.__ticket} target="_blank" rel="noreferrer">{row.__ticket}</a> : (row.__ticket || "—")}</td>
-    <td className="titleCell">{row.__title || "—"}</td>
-    <td>{row.__customer || "—"}</td>
-    {showAnalyst && <td><ResponsibleTag value={row.__analyst} compact /></td>}
-    <td>{row.__area || "—"}</td>
-    <td><StatusTag value={row.__status} /></td>
-    <td><MetricTag value={row.__value} label="Приоритет" /></td>
-    <td><MetricTag value={row.__analysisTime} label="Время в аналитике" /></td>
-    <td className="commentCell">{row.__note || "—"}</td>
+    <td className="ticketCell"><div className="cellContent">{row.__ticketValid ? <a href={row.__ticket} target="_blank" rel="noreferrer">{row.__ticket}</a> : (row.__ticket || "—")}</div></td>
+    <td className="titleCell"><div className="cellContent">{row.__title || "—"}</div></td>
+    <td><div className="cellContent">{row.__customer || "—"}</div></td>
+    {showAnalyst && <td><div className="cellContent"><ResponsibleTag value={row.__analyst} compact /></div></td>}
+    <td><div className="cellContent">{row.__area || "—"}</div></td>
+    <td><div className="cellContent"><StatusTag value={row.__status} /></div></td>
+    <td><div className="cellContent"><MetricTag value={row.__value} label="Приоритет" /></div></td>
+    <td><div className="cellContent"><MetricTag value={row.__analysisTime} label="Время в аналитике" /></div></td>
+    <td className="commentCell"><div className="cellContent">{row.__note || "—"}</div></td>
   </tr>;
 }
 

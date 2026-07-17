@@ -58,22 +58,34 @@ export function scoreTone(value: string): "danger" | "orange" | "yellow" | "gree
 }
 
 export function toDashboardRows(rows: RawRow[]): DashboardRow[] {
-  return rows.map((row, index) => {
+  return rows.flatMap((row, index) => {
     const ticket = pickWithPositionFallback(row, columnAliases.ticket, 0);
-    return {
+    const title = pickWithPositionFallback(row, columnAliases.title, 1);
+    const customer = pickWithPositionFallback(row, columnAliases.customer, 2);
+    const area = pickWithPositionFallback(row, columnAliases.area, 4);
+    const value = pickWithPositionFallback(row, columnAliases.value, 5);
+    const analysisTime = pickWithPositionFallback(row, columnAliases.analysisTime, 6);
+    const status = pickWithPositionFallback(row, columnAliases.status, 7);
+    const note = pickWithPositionFallback(row, columnAliases.note, 8);
+
+    // В рабочих листах есть служебные строки, где заполнен только ответственный.
+    // Они нужны для оформления Google Sheets, но не являются задачами.
+    if (![ticket, title, customer, area, value, analysisTime, status, note].some((cell) => cell.trim())) return [];
+
+    return [{
       ...row,
       __id: `${ticket || "row"}-${index}`,
       __analyst: pickWithPositionFallback(row, columnAliases.analyst, 3) || "Без ответственного",
       __ticket: ticket,
-      __title: pickWithPositionFallback(row, columnAliases.title, 1) || "Без названия",
-      __customer: pickWithPositionFallback(row, columnAliases.customer, 2) || "Без заказчика",
-      __status: pickWithPositionFallback(row, columnAliases.status, 7) || "Без статуса",
-      __area: pickWithPositionFallback(row, columnAliases.area, 4) || "Не указано",
-      __value: pickWithPositionFallback(row, columnAliases.value, 5),
-      __analysisTime: pickWithPositionFallback(row, columnAliases.analysisTime, 6),
-      __note: pickWithPositionFallback(row, columnAliases.note, 8),
+      __title: title || "Без названия",
+      __customer: customer || "Без заказчика",
+      __status: status || "Без статуса",
+      __area: area || "Не указано",
+      __value: value,
+      __analysisTime: analysisTime,
+      __note: note,
       __ticketValid: isHttpUrl(ticket),
-    };
+    }];
   });
 }
 

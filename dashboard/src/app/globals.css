@@ -110,6 +110,8 @@ h1 { margin: 0; color: #1f2933; font-size: clamp(28px, 3vw, 40px); line-height: 
 .taskTable { width: 100%; min-width: 1120px; border-collapse: collapse; table-layout: fixed; }
 .taskTable th, .taskTable td { padding: 11px 12px; border-bottom: 1px solid #ececef; text-align: left; vertical-align: top; font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .taskTable th { background: #fafafa; color: #73777f; font-size: 10px; font-weight: 700; letter-spacing: .045em; text-transform: uppercase; }
+.taskTable thead tr { height: 42px; }
+.taskTable thead th { height: 42px; padding-top: 10px; padding-bottom: 10px; vertical-align: middle; }
 .taskTable th:nth-child(1) { width: 12%; }
 .taskTable th:nth-child(2) { width: 20%; }
 .taskTable th:nth-child(3) { width: 11%; }
@@ -125,6 +127,10 @@ h1 { margin: 0; color: #1f2933; font-size: clamp(28px, 3vw, 40px); line-height: 
 .sortButton span { color: #a4a7ad; font-size: 12px; }
 .taskRow:hover td { background: #fcfcfd; }
 .taskRow:last-child td { border-bottom: 0; }
+.taskRow { height: 46px; }
+.taskRow td { height: 46px; padding-top: 9px; padding-bottom: 9px; }
+.cellContent { display: -webkit-box; max-height: 54px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.ticketCell .cellContent, .titleCell .cellContent { word-break: break-word; }
 .titleCell { color: #2f3338; font-weight: 550; }
 .ticketCell a { color: #1769a5; font-weight: 600; text-decoration: none; }
 .ticketCell a:hover { text-decoration: underline; text-underline-offset: 2px; }
