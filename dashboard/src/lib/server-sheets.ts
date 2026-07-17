@@ -1,19 +1,31 @@
 import { google, sheets_v4 } from "googleapis";
 import Papa from "papaparse";
-import { analyticsSheetGid, buildSheetUrl, dashboardColumnLimit, defaultSheetGid, spreadsheetId } from "@/config/sheets";
+import { analyticsSheetGid, buildSheetUrl, columnAliases, dashboardColumnLimit, defaultSheetGid, spreadsheetId } from "@/config/sheets";
 import { normalizeHeader, normalizeText, RawRow, toDashboardRows, DashboardPayload, SheetInfo } from "./dashboard-data";
 
 function rowsFromMatrix(values: unknown[][]): { rows: RawRow[]; columns: string[] } {
   if (!values.length) return { rows: [], columns: [] };
   const relevantValues = values.map((row) => row.slice(0, dashboardColumnLimit));
+  const knownHeaders = new Set(Object.values(columnAliases).flat().map(normalizeHeader));
+  let headerIndex = 0;
+  let headerScore = 0;
+  relevantValues.slice(0, 25).forEach((row, index) => {
+    const score = row.map(normalizeHeader).filter((value) => knownHeaders.has(value)).length;
+    if (score > headerScore) {
+      headerIndex = index;
+      headerScore = score;
+    }
+  });
+  // Require at least two recognized business columns; otherwise retain the legacy first-row behavior.
+  if (headerScore < 2) headerIndex = 0;
   const usedColumns = new Set<string>();
-  const columns = relevantValues[0].map((header, index) => {
+  const columns = relevantValues[headerIndex].map((header, index) => {
     const normalized = normalizeHeader(header) || `столбец ${index + 1}`;
     const unique = usedColumns.has(normalized) ? `${normalized} (${index + 1})` : normalized;
     usedColumns.add(unique);
     return unique;
   });
-  const rows = relevantValues.slice(1).map((raw) => {
+  const rows = relevantValues.slice(headerIndex + 1).map((raw) => {
     const row: RawRow = {};
     columns.forEach((column, index) => (row[column] = normalizeText(raw[index])));
     return row;

@@ -6,10 +6,15 @@ import type { DashboardPayload, DashboardRow, SheetInfo } from "@/lib/dashboard-
 import {
   analystPresentation,
   dashboardTabs,
+  defaultClientExclusions,
+  defaultDirectionExclusions,
+  defaultFilterSelection,
   isQueueTask,
   metricPresentation,
+  reconcileFilterSelection,
   rowMatchesTab,
   rowMatchesSelections,
+  sameFilterSelection,
   type DashboardTab,
 } from "@/lib/dashboard-view";
 
@@ -19,6 +24,7 @@ const emptyPayload: DashboardPayload = {
 
 type SortKey = "ticket" | "title" | "customer" | "analyst" | "area" | "status" | "priority" | "analysisTime" | "note";
 type SortDirection = "asc" | "desc";
+const noDefaultExclusions: string[] = [];
 
 const sortValues: Record<SortKey, keyof DashboardRow> = {
   ticket: "__ticket", title: "__title", customer: "__customer", analyst: "__analyst", area: "__area",
@@ -60,10 +66,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<DashboardTab>("actual");
-  const [selectedClients, setSelectedClients] = useState<string[] | null>(null);
-  const [selectedResponsibles, setSelectedResponsibles] = useState<string[] | null>(null);
-  const [selectedDirections, setSelectedDirections] = useState<string[] | null>(null);
-  const [selectedStatuses, setSelectedStatuses] = useState<string[] | null>(null);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -109,17 +111,17 @@ export default function DashboardPage() {
   const responsibles = useMemo(() => filterOptions("__analyst"), [filterOptions]);
   const directions = useMemo(() => filterOptions("__area"), [filterOptions]);
   const statuses = useMemo(() => filterOptions("__status"), [filterOptions]);
-  const activeClients = useMemo(() => effectiveSelection(selectedClients, clients), [selectedClients, clients]);
-  const activeResponsibles = useMemo(() => effectiveSelection(selectedResponsibles, responsibles), [selectedResponsibles, responsibles]);
-  const activeDirections = useMemo(() => effectiveSelection(selectedDirections, directions), [selectedDirections, directions]);
-  const activeStatuses = useMemo(() => effectiveSelection(selectedStatuses, statuses), [selectedStatuses, statuses]);
+  const clientFilter = useDynamicMultiSelection(clients, defaultClientExclusions);
+  const responsibleFilter = useDynamicMultiSelection(responsibles);
+  const directionFilter = useDynamicMultiSelection(directions, defaultDirectionExclusions);
+  const statusFilter = useDynamicMultiSelection(statuses);
 
   const filtered = useMemo(() => rowsForTab.filter((row) => rowMatchesSelections(row, {
-    clients: activeClients,
-    responsibles: activeResponsibles,
-    directions: activeDirections,
-    statuses: activeStatuses,
-  }, query)), [rowsForTab, activeClients, activeResponsibles, activeDirections, activeStatuses, query]);
+    clients: clientFilter.selected,
+    responsibles: responsibleFilter.selected,
+    directions: directionFilter.selected,
+    statuses: statusFilter.selected,
+  }, query)), [rowsForTab, clientFilter.selected, responsibleFilter.selected, directionFilter.selected, statusFilter.selected, query]);
 
   const sorted = useMemo(() => [...filtered].sort((left, right) => {
     const key = sortValues[sortKey];
@@ -131,11 +133,11 @@ export default function DashboardPage() {
   const mainRows = useMemo(() => sorted.filter((row) => !isQueueTask(row)), [sorted]);
   const groups = useMemo(() => groupByAnalyst(mainRows), [mainRows]);
   const filtersChanged = activeTab !== "actual" || Boolean(query.trim())
-    || !selectionIsAll(activeClients, clients)
-    || !selectionIsAll(activeResponsibles, responsibles)
-    || !selectionIsAll(activeDirections, directions)
-    || !selectionIsAll(activeStatuses, statuses);
-  const resetFilters = () => { setSelectedClients(null); setSelectedResponsibles(null); setSelectedDirections(null); setSelectedStatuses(null); setQuery(""); setActiveTab("actual"); };
+    || !clientFilter.isDefault
+    || !responsibleFilter.isDefault
+    || !directionFilter.isDefault
+    || !statusFilter.isDefault;
+  const resetFilters = () => { clientFilter.reset(); responsibleFilter.reset(); directionFilter.reset(); statusFilter.reset(); setQuery(""); setActiveTab("actual"); };
   const changeTab = (tab: DashboardTab) => setActiveTab(tab);
   const changeSort = (key: SortKey) => { if (sortKey === key) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
   const updatedAt = payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
@@ -165,10 +167,10 @@ export default function DashboardPage() {
       <div className="controls">
         <label className="searchControl"><span className="srOnly">Поиск</span><SearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по тикету, названию или комментарию" /></label>
         <div className="filterGrid">
-          <MultiSelect label="Заказчик" options={clients} selected={activeClients} onChange={(next) => setSelectedClients(selectionIsAll(next, clients) ? null : next)} renderOption={(option) => <ColorTag value={option} />} />
-          <MultiSelect label="Ответственный" options={responsibles} selected={activeResponsibles} onChange={(next) => setSelectedResponsibles(selectionIsAll(next, responsibles) ? null : next)} renderOption={(option) => <ResponsibleTag value={option} compact />} />
-          <MultiSelect label="К чему относится" options={directions} selected={activeDirections} onChange={(next) => setSelectedDirections(selectionIsAll(next, directions) ? null : next)} renderOption={(option) => <ColorTag value={option} />} />
-          <MultiSelect label="Статус" options={statuses} selected={activeStatuses} onChange={(next) => setSelectedStatuses(selectionIsAll(next, statuses) ? null : next)} renderOption={(option) => <ColorTag value={option} kind="status" />} />
+          <MultiSelect label="Заказчик" options={clients} selected={clientFilter.selected} onChange={clientFilter.setSelected} renderOption={(option) => <ColorTag value={option} />} />
+          <MultiSelect label="Ответственный" options={responsibles} selected={responsibleFilter.selected} onChange={responsibleFilter.setSelected} renderOption={(option) => <ResponsibleTag value={option} compact />} />
+          <MultiSelect label="К чему относится" options={directions} selected={directionFilter.selected} onChange={directionFilter.setSelected} renderOption={(option) => <ColorTag value={option} />} />
+          <MultiSelect label="Статус" options={statuses} selected={statusFilter.selected} onChange={statusFilter.setSelected} renderOption={(option) => <ColorTag value={option} kind="status" />} />
           {filtersChanged && <button className="resetButton" onClick={resetFilters} title="Сбросить фильтры"><ResetIcon />Сбросить</button>}
         </div>
       </div>
@@ -200,12 +202,24 @@ function groupByAnalyst(rows: DashboardRow[]) {
     .sort((left, right) => left.meta.order - right.meta.order || left.meta.label.localeCompare(right.meta.label, "ru"));
 }
 
-function effectiveSelection(selected: string[] | null, options: string[]) {
-  return selected === null ? options : selected.filter((value) => options.includes(value));
-}
+function useDynamicMultiSelection(options: string[], excludedValues: string[] = noDefaultExclusions) {
+  const [userSelection, setUserSelection] = useState<string[] | null>(null);
+  const previousOptions = useRef<string[]>([]);
+  const defaultSelection = useMemo(() => defaultFilterSelection(options, excludedValues), [options, excludedValues]);
+  const selected = useMemo(() => userSelection === null
+    ? defaultSelection
+    : reconcileFilterSelection(previousOptions.current, options, userSelection, excludedValues), [userSelection, defaultSelection, options, excludedValues]);
 
-function selectionIsAll(selected: string[], options: string[]) {
-  return selected.length === options.length && options.every((option) => selected.includes(option));
+  useEffect(() => {
+    if (userSelection !== null && !sameFilterSelection(userSelection, selected)) setUserSelection(selected);
+    previousOptions.current = options;
+  }, [options, selected, userSelection]);
+
+  const setSelected = useCallback((next: string[]) => {
+    setUserSelection(sameFilterSelection(next, defaultSelection) ? null : next);
+  }, [defaultSelection]);
+  const reset = useCallback(() => setUserSelection(null), []);
+  return { selected, setSelected, reset, isDefault: sameFilterSelection(selected, defaultSelection) };
 }
 
 function taskWord(count: number) {
