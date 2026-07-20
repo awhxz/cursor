@@ -16,12 +16,13 @@ export function ResponsibleTag({ value, compact = false }: { value: string; comp
   return <ColorTag tone={meta.tone} className={`responsibleTag${compact ? " compact" : ""}`}><b>{meta.icon}</b>{meta.label}</ColorTag>;
 }
 
-export function MultiSelect({ label, options, selected, onChange, disabled = false }: {
+export function MultiSelect({ label, options, selected, onChange, disabled = false, summaryLabel }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (values: string[]) => void;
   disabled?: boolean;
+  summaryLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -47,9 +48,11 @@ export function MultiSelect({ label, options, selected, onChange, disabled = fal
     <span className="multiSelectLabel">{label}</span>
     <button type="button" className="multiSelectTrigger" onClick={() => setOpen((current) => !current)} disabled={disabled} aria-expanded={open} aria-controls={listId}>
       <span className="selectionSummary">
-        {!selected.length && <span className="selectionPlaceholder">Все</span>}
-        {selected.slice(0, 2).map((item) => <span className="selectionChip" key={item}>{item}</span>)}
-        {selected.length > 2 && <span className="selectionMore">+{selected.length - 2}</span>}
+        {summaryLabel ? <span className="selectionPlaceholder">{summaryLabel}</span> : <>
+          {!selected.length && <span className="selectionPlaceholder">Все</span>}
+          {selected.slice(0, 2).map((item) => <span className="selectionChip" key={item}>{item}</span>)}
+          {selected.length > 2 && <span className="selectionMore">+{selected.length - 2}</span>}
+        </>}
       </span>
       <ChevronIcon />
     </button>

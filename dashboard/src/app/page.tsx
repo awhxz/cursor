@@ -25,6 +25,52 @@ const sortValues: Record<SortKey, keyof DashboardRow> = {
   status: "__status", priority: "__value", analysisTime: "__analysisTime", note: "__note",
 };
 
+const customerExclusions = ["Баг", "Без заказчика"];
+const areaExclusions = ["Баг/Недоработка", "Процессные задачи"];
+
+function normalizeFilterValue(value: unknown) {
+  return String(value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u200b-\u200d\ufeff]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("ru-RU")
+    .replaceAll("ё", "е");
+}
+
+function uniqueFilterOptions(rows: DashboardRow[], key: keyof DashboardRow) {
+  const values = new Map<string, string>();
+  rows.forEach((row) => {
+    const display = String(row[key] ?? "").replace(/\u00a0/g, " ").replace(/[\u200b-\u200d\ufeff]/g, "").trim().replace(/\s+/g, " ");
+    const normalized = normalizeFilterValue(display);
+    if (normalized && !values.has(normalized)) values.set(normalized, display);
+  });
+  return Array.from(values.values()).sort((left, right) => left.localeCompare(right, "ru", { sensitivity: "base" }));
+}
+
+function excludes(values: readonly string[]) {
+  const excluded = new Set(values.map(normalizeFilterValue));
+  return (option: string) => !excluded.has(normalizeFilterValue(option));
+}
+
+function sameSelection(left: string[], right: string[]) {
+  const leftValues = new Set(left.map(normalizeFilterValue));
+  const rightValues = new Set(right.map(normalizeFilterValue));
+  return leftValues.size === rightValues.size && Array.from(leftValues).every((value) => rightValues.has(value));
+}
+
+function reconcileSelection(selected: string[], options: string[], previousOptions: string[], allowed: (value: string) => boolean) {
+  const selectedValues = new Set(selected.map(normalizeFilterValue));
+  const previousValues = new Set(previousOptions.map(normalizeFilterValue));
+  return options.filter((option) => selectedValues.has(normalizeFilterValue(option)) || (!previousValues.has(normalizeFilterValue(option)) && allowed(option)));
+}
+
+function exclusionSummary(label: string, options: string[], exclusions: readonly string[]) {
+  const optionValues = new Set(options.map(normalizeFilterValue));
+  const present = exclusions.filter((value) => optionValues.has(normalizeFilterValue(value)));
+  return present.length ? `${label}: кроме ${present.join(", ")}` : "Все";
+}
+
 async function requestSheet(gid?: string): Promise<DashboardPayload> {
   const params = new URLSearchParams({ ts: String(Date.now()) });
   if (gid) params.set("gid", gid);
@@ -72,6 +118,8 @@ export default function DashboardPage() {
   const [sortKey, setSortKey] = useState<SortKey>("priority");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const catalogRef = useRef<SheetInfo[]>([]);
+  const filterTabRef = useRef<DashboardTab | null>(null);
+  const previousFilterOptions = useRef<{ customers: string[]; analysts: string[]; areas: string[]; statuses: string[] } | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -110,18 +158,42 @@ export default function DashboardPage() {
   }, [loadData]);
 
   const rowsForTab = useMemo(() => payload.rows.filter((row) => rowMatchesTab(row, activeTab)), [payload.rows, activeTab]);
-  const filterOptions = useCallback((key: keyof DashboardRow) => Array.from(new Set(rowsForTab.map((row) => String(row[key])).filter(Boolean))).sort(), [rowsForTab]);
-  const customers = useMemo(() => filterOptions("__customer"), [filterOptions]);
-  const analysts = useMemo(() => filterOptions("__analyst"), [filterOptions]);
-  const areas = useMemo(() => filterOptions("__area"), [filterOptions]);
-  const statuses = useMemo(() => filterOptions("__status"), [filterOptions]);
+  const customers = useMemo(() => uniqueFilterOptions(rowsForTab, "__customer"), [rowsForTab]);
+  const analysts = useMemo(() => uniqueFilterOptions(rowsForTab, "__analyst"), [rowsForTab]);
+  const areas = useMemo(() => uniqueFilterOptions(rowsForTab, "__area"), [rowsForTab]);
+  const statuses = useMemo(() => uniqueFilterOptions(rowsForTab, "__status"), [rowsForTab]);
+  const defaultCustomers = useMemo(() => customers.filter(excludes(customerExclusions)), [customers]);
+  const defaultAreas = useMemo(() => areas.filter(excludes(areaExclusions)), [areas]);
+
+  useEffect(() => {
+    if (loading) return;
+    const current = { customers, analysts, areas, statuses };
+    const previous = filterTabRef.current === activeTab ? previousFilterOptions.current : null;
+    if (!previous) {
+      setCustomer(defaultCustomers);
+      setAnalyst(analysts);
+      setArea(defaultAreas);
+      setStatus(statuses);
+    } else {
+      setCustomer((selected) => reconcileSelection(selected, customers, previous.customers, excludes(customerExclusions)));
+      setAnalyst((selected) => reconcileSelection(selected, analysts, previous.analysts, () => true));
+      setArea((selected) => reconcileSelection(selected, areas, previous.areas, excludes(areaExclusions)));
+      setStatus((selected) => reconcileSelection(selected, statuses, previous.statuses, () => true));
+    }
+    filterTabRef.current = activeTab;
+    previousFilterOptions.current = current;
+  }, [activeTab, loading, customers, analysts, areas, statuses, defaultCustomers, defaultAreas]);
 
   const filtered = useMemo(() => rowsForTab.filter((row) => {
     const haystack = [row.__ticket, row.__title, row.__customer, row.__analyst, row.__area, row.__status, row.__note].join(" ").toLowerCase();
-    return (!customer.length || customer.includes(row.__customer))
-      && (!analyst.length || analyst.includes(row.__analyst))
-      && (!area.length || area.includes(row.__area))
-      && (!status.length || status.includes(row.__status))
+    const selectedCustomers = new Set(customer.map(normalizeFilterValue));
+    const selectedAnalysts = new Set(analyst.map(normalizeFilterValue));
+    const selectedAreas = new Set(area.map(normalizeFilterValue));
+    const selectedStatuses = new Set(status.map(normalizeFilterValue));
+    return selectedCustomers.has(normalizeFilterValue(row.__customer))
+      && selectedAnalysts.has(normalizeFilterValue(row.__analyst))
+      && selectedAreas.has(normalizeFilterValue(row.__area))
+      && selectedStatuses.has(normalizeFilterValue(row.__status))
       && haystack.includes(query.trim().toLowerCase());
   }), [rowsForTab, customer, analyst, area, status, query]);
 
@@ -136,8 +208,10 @@ export default function DashboardPage() {
   const mainRows = useMemo(() => separateQueue ? sorted.filter((row) => !isQueueTask(row)) : sorted, [separateQueue, sorted]);
   const groups = useMemo(() => groupByAnalyst(mainRows), [mainRows]);
   const groupByResponsible = activeTab === "actual";
-  const resetFilters = () => { setCustomer([]); setAnalyst([]); setArea([]); setStatus([]); setQuery(""); };
-  const changeTab = (tab: DashboardTab) => { resetFilters(); setActiveTab(tab); };
+  const filtersChanged = !sameSelection(customer, defaultCustomers) || !sameSelection(analyst, analysts)
+    || !sameSelection(area, defaultAreas) || !sameSelection(status, statuses) || Boolean(query);
+  const resetFilters = () => { setCustomer(defaultCustomers); setAnalyst(analysts); setArea(defaultAreas); setStatus(statuses); setQuery(""); };
+  const changeTab = (tab: DashboardTab) => { setQuery(""); filterTabRef.current = null; previousFilterOptions.current = null; setActiveTab(tab); };
   const changeSort = (key: SortKey) => { if (sortKey === key) setSortDirection((current) => current === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
   const updatedAt = payload.fetchedAt ? new Date(payload.fetchedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
   const sourceTag = payload.sheetGid ? `gid ${payload.sheetGid}` : payload.sheetTitle || "Google Sheets";
@@ -166,11 +240,11 @@ export default function DashboardPage() {
       <div className="controls">
         <label className="searchControl"><span className="srOnly">Поиск</span><SearchIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по тикету, названию или комментарию" /></label>
         <div className="filterGrid">
-          <MultiSelect label="Заказчик" options={customers} selected={customer} onChange={setCustomer} disabled={loading && !payload.rows.length} />
+          <MultiSelect label="Заказчик" options={customers} selected={customer} onChange={setCustomer} disabled={loading && !payload.rows.length} summaryLabel={sameSelection(customer, defaultCustomers) ? exclusionSummary("Заказчик", customers, customerExclusions) : undefined} />
           <MultiSelect label="Ответственный" options={analysts} selected={analyst} onChange={setAnalyst} disabled={loading && !payload.rows.length} />
-          <MultiSelect label="К чему относится" options={areas} selected={area} onChange={setArea} disabled={loading && !payload.rows.length} />
+          <MultiSelect label="К чему относится" options={areas} selected={area} onChange={setArea} disabled={loading && !payload.rows.length} summaryLabel={sameSelection(area, defaultAreas) ? exclusionSummary("К чему относится", areas, areaExclusions) : undefined} />
           <MultiSelect label="Статус" options={statuses} selected={status} onChange={setStatus} disabled={loading && !payload.rows.length} />
-          <button className="resetButton" onClick={resetFilters} title="Сбросить фильтры"><ResetIcon />Сбросить</button>
+          <button className="resetButton" onClick={resetFilters} title="Сбросить фильтры" disabled={!filtersChanged}><ResetIcon />Сбросить</button>
         </div>
       </div>
 
